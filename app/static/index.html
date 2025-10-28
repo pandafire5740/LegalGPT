@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LegalGPT</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/styles.css?v=1760559005" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-scale-balanced"></i>
+                    <h1>LegalGPT</h1>
+                </div>
+                
+                <!-- Mode Toggle -->
+                <div class="mode-toggle">
+                    <button class="mode-btn active" data-mode="chat" onclick="switchMode('chat')">
+                        <i class="fas fa-comments"></i>
+                        Chat
+                    </button>
+                    <button class="mode-btn" data-mode="search" onclick="switchMode('search')">
+                        <i class="fas fa-search"></i>
+                        Search
+                    </button>
+                    <button class="mode-btn" data-mode="extract" onclick="switchMode('extract')">
+                        <i class="fas fa-file-contract"></i>
+                        Extract
+                    </button>
+                </div>
+                
+                <!-- Theme Control -->
+                <div class="header-controls">
+                    <div class="theme-toggle" title="Toggle light/dark" onclick="toggleTheme()">
+                        <div class="theme-track">
+                            <div class="theme-thumb">
+                                <i class="fas fa-sun"></i>
+                                <i class="fas fa-moon"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="header-stats">
+                    <div class="stat-item tooltip-host">
+                        <span class="stat-value" id="document-count">-</span>
+                        <span class="stat-label">Documents</span>
+                        <div class="doc-tooltip" id="doc-tooltip"></div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="chunk-count">-</span>
+                        <span class="stat-label">Sections</span>
+                    </div>
+                    <button class="clear-btn" onclick="resetIndex()" title="Clear all files and reset counters">
+                        <i class="fas fa-rotate"></i>
+                        Clear files
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <!-- Prompt Templates Section -->
+                <!-- Prompt templates removed in minimal build -->
+                
+                <div class="sidebar-section">
+                    <h3><i class="fas fa-lightbulb"></i> Quick Actions</h3>
+                    <button class="action-btn" onclick="showTermsExtraction()">
+                        <i class="fas fa-file-contract"></i>
+                        Extract Terms & Conditions
+                    </button>
+                    <button class="action-btn" onclick="showDocumentSearch()">
+                        <i class="fas fa-search"></i>
+                        Find Document Location
+                    </button>
+                    <!-- Sync disabled (SharePoint removed) -->
+                    <button class="action-btn" onclick="showDocumentUpload()">
+                        <i class="fas fa-upload"></i>
+                        Upload Local Documents
+                    </button>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3><i class="fas fa-question-circle"></i> Example Questions</h3>
+                    <div class="example-queries">
+                        <div class="query-example" onclick="sendExampleQuery(this)">
+                            "Show me all contracts with termination clauses"
+                        </div>
+                        <div class="query-example" onclick="sendExampleQuery(this)">
+                            "Extract payment terms from vendor agreements"
+                        </div>
+                        <div class="query-example" onclick="sendExampleQuery(this)">
+                            "Find documents mentioning confidentiality"
+                        </div>
+                        <div class="query-example" onclick="sendExampleQuery(this)">
+                            "Summarize the contract with Company ABC"
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3><i class="fas fa-chart-bar"></i> System Status</h3>
+                    <div class="status-indicator">
+                        <span class="status-dot" id="sharepoint-status"></span>
+                        Sharepoint Connection
+                    </div>
+                    <div class="status-indicator">
+                        <span class="status-dot" id="vector-status"></span>
+                        Vector Database
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Mode Content Container -->
+            <div class="mode-content">
+                <!-- Chat Mode -->
+                <div class="mode-panel active" id="chat-mode">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="welcome-message">
+                        <div class="message-content">
+                            <h2>👋 Welcome to LegalGPT</h2>
+                            <p>I'm your AI assistant for legal document search and analysis. I can help you:</p>
+                            <ul>
+                                <li>Find specific information in contracts and legal documents</li>
+                                <li>Extract terms and conditions from agreements</li>
+                                <li>Summarize document content</li>
+                                <li>Locate files in your Sharepoint repository</li>
+                                <li>Answer questions about legal clauses and provisions</li>
+                            </ul>
+                            <p><strong>Ask me anything about your legal documents!</strong></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-container">
+                        
+                        
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="chat-input" 
+                            placeholder="Ask about your legal documents..."
+                            rows="1"
+                            onkeydown="handleKeyDown(event)"
+                        ></textarea>
+                        <button id="send-button" onclick="sendMessage()">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                    <div class="input-footer">
+                        <small>Press Ctrl+Enter to send • Your conversations help improve the system</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search Mode -->
+                <div class="mode-panel" id="search-mode">
+                    <div class="search-container">
+                        <div class="search-header">
+                            <h2><i class="fas fa-search"></i> Document Search</h2>
+                            <p>Search across SharePoint and Slack documents using hybrid search</p>
+                        </div>
+                        
+                        <div class="search-input-container">
+                            <div class="input-wrapper">
+                                <input 
+                                    type="text" 
+                                    id="search-input" 
+                                    placeholder="Enter your search query..."
+                                    onkeydown="handleSearchKeyDown(event)"
+                                >
+                                <button id="search-button" onclick="performSearch()">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                            </div>
+                            <div class="search-options">
+                                <label>
+                                    <input type="number" id="search-top-k" value="8" min="1" max="20">
+                                    Results
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="search-results" id="search-results">
+                            <div class="search-placeholder">
+                                <i class="fas fa-search"></i>
+                                <p>Enter a search query to find relevant documents</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Extract Mode -->
+                <div class="mode-panel" id="extract-mode">
+                    <div class="extract-container">
+                        <div class="extract-header">
+                            <h2><i class="fas fa-file-contract"></i> Contract Extraction</h2>
+                            <p>Select a file from memory to extract key terms using AI</p>
+                        </div>
+                        
+                        <div class="extract-selector-area">
+                            <div class="file-selector-box">
+                                <label for="extract-file-select">
+                                    <i class="fas fa-folder-open"></i> Select File from Memory
+                                </label>
+                                <select id="extract-file-select" class="file-dropdown">
+                                    <option value="">-- Choose a file --</option>
+                                </select>
+                                <button class="extract-btn" onclick="extractTermsFromMemory()">
+                                    <i class="fas fa-magic"></i>
+                                    Extract Terms
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="extract-results" id="extract-results">
+                            <div class="extract-placeholder">
+                                <i class="fas fa-file-contract"></i>
+                                <p>Select a file and click "Extract Terms" to analyze</p>
+                            </div>
+                        </div>
+                        
+                        <div class="extract-actions" id="extract-actions" style="display: none;">
+                            <button class="action-btn" onclick="exportExtractionResults()">
+                                <i class="fas fa-download"></i>
+                                Export CSV
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="loading-spinner">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>LegalGPT is generating a response...</p>
+            </div>
+        </div>
+
+        <!-- Modal for Terms Extraction -->
+        <div class="modal" id="terms-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-file-contract"></i> Extract Terms & Conditions</h3>
+                    <button class="modal-close" onclick="closeModal('terms-modal')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="terms-filter">Filter by contract type (optional):</label>
+                        <input type="text" id="terms-filter" placeholder="e.g., service agreement, employment, vendor">
+                    </div>
+                    <button class="btn btn-primary" onclick="extractTerms()">
+                        <i class="fas fa-extract"></i>
+                        Extract Terms
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for Document Search -->
+        <div class="modal" id="search-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-search"></i> Find Document Location</h3>
+                    <button class="modal-close" onclick="closeModal('search-modal')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="document-query">Document name or description:</label>
+                        <input type="text" id="document-query" placeholder="e.g., contract with ABC Corp, NDA, employment agreement">
+                    </div>
+                    <button class="btn btn-primary" onclick="findDocument()">
+                        <i class="fas fa-search"></i>
+                        Find Document
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for Document Upload -->
+        <div class="modal" id="upload-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-upload"></i> Upload Local Documents</h3>
+                    <button class="modal-close" onclick="closeModal('upload-modal')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="file-upload">Select documents to upload:</label>
+                        <input type="file" id="file-upload" multiple accept=".pdf,.docx,.doc,.txt,.rtf">
+                        <small>Supported formats: PDF, DOCX, DOC, TXT, RTF</small>
+                    </div>
+                    <div class="upload-progress" id="upload-progress" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                        <div class="progress-text" id="progress-text">Uploading...</div>
+                    </div>
+                    <button class="btn btn-primary" onclick="uploadDocuments()">
+                        <i class="fas fa-upload"></i>
+                        Upload Documents
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for Prompt Editor -->
+        <div class="modal" id="prompt-editor-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-magic"></i> Prompt Templates</h3>
+                    <button class="modal-close" onclick="closeModal('prompt-editor-modal')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="prompt-editor">
+                        <div class="prompt-list" id="prompt-list">
+                            <!-- Templates will be loaded here -->
+                        </div>
+                        <div class="prompt-actions">
+                            <button class="btn btn-secondary" onclick="addNewPrompt()">
+                                <i class="fas fa-plus"></i>
+                                Add Template
+                            </button>
+                            <button class="btn btn-primary" onclick="savePrompts()">
+                                <i class="fas fa-save"></i>
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simple test to see if JavaScript is working
+        console.log('JavaScript is loading...');
+        
+        // Test if we can access the modal directly
+        function testModal() {
+            console.log('testModal called');
+            const modal = document.getElementById('upload-modal');
+            console.log('Modal found:', !!modal);
+            if (modal) {
+                modal.classList.add('active');
+                console.log('Modal activated');
+            }
+        }
+        
+        // Make testModal available globally
+        window.testModal = testModal;
+        
+        // Fallback functions in case app.js fails to load
+        function showDocumentUpload() {
+            console.log('Fallback showDocumentUpload called');
+            const modal = document.getElementById('upload-modal');
+            if (modal) {
+                // Reset modal state
+                const fileInput = document.getElementById('file-upload');
+                const progressDiv = document.getElementById('upload-progress');
+                const progressFill = document.getElementById('progress-fill');
+                const progressText = document.getElementById('progress-text');
+                
+                if (fileInput) fileInput.value = '';
+                if (progressDiv) progressDiv.style.display = 'none';
+                if (progressFill) progressFill.style.width = '0%';
+                if (progressText) progressText.textContent = 'Uploading...';
+                
+                modal.classList.add('active');
+                console.log('Modal activated via fallback');
+            }
+        }
+        
+        async function uploadDocuments() {
+            console.log('Fallback uploadDocuments called');
+            const fileInput = document.getElementById('file-upload');
+            const files = fileInput.files;
+            
+            if (files.length === 0) {
+                alert('Please select at least one file to upload.');
+                return;
+            }
+
+            const progressDiv = document.getElementById('upload-progress');
+            const progressFill = document.getElementById('progress-fill');
+            const progressText = document.getElementById('progress-text');
+            let warningsDiv = document.getElementById('upload-warnings');
+            if (!warningsDiv) {
+                warningsDiv = document.createElement('div');
+                warningsDiv.id = 'upload-warnings';
+                warningsDiv.style.marginTop = '0.5rem';
+                warningsDiv.style.fontSize = '0.875rem';
+                warningsDiv.style.color = 'var(--warning-color)';
+                progressDiv.parentElement.appendChild(warningsDiv);
+            } else {
+                warningsDiv.textContent = '';
+            }
+            
+            progressDiv.style.display = 'block';
+            
+            let uploadedCount = 0;
+            const totalFiles = files.length;
+            let duplicateNames = [];
+
+            // Client-side dedupe using current stats
+            try {
+                const statsRes = await fetch('/api/documents/stats/simple');
+                const stats = await statsRes.json();
+                const existing = new Set(Array.isArray(stats.files) ? stats.files : []);
+                const filtered = [];
+                for (let i = 0; i < files.length; i++) {
+                    if (existing.has(files[i].name)) {
+                        duplicateNames.push(files[i].name);
+                    } else {
+                        filtered.push(files[i]);
+                    }
+                }
+                if (duplicateNames.length) {
+                    warningsDiv.textContent = `We already have this file in memory! ${duplicateNames.join(', ')}`;
+                }
+                files = filtered;
+            } catch (e) {}
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                
+                try {
+                    progressText.textContent = `Uploading ${file.name}... (${i + 1}/${totalFiles})`;
+                    
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    const response = await fetch('/api/documents/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        uploadedCount++;
+                        console.log(`✅ Successfully uploaded "${file.name}"`);
+                    } else if (result.status === 'exists') {
+                        duplicateNames.push(file.name);
+                        warningsDiv.textContent = `We already have this file in memory! ${duplicateNames.join(', ')}`;
+                    } else {
+                        console.log(`❌ Failed to upload "${file.name}": ${result.detail || 'Unknown error'}`);
+                    }
+                    
+                    // Update progress
+                    const progress = ((i + 1) / totalFiles) * 100;
+                    progressFill.style.width = `${progress}%`;
+                    
+                } catch (error) {
+                    console.error('Upload error:', error);
+                }
+            }
+            
+            progressText.textContent = `Upload complete! ${uploadedCount}/${totalFiles} files uploaded successfully.`;
+            
+            // Refresh document counter
+            updateDocumentCounter();
+            
+            // Close modal after a delay
+            setTimeout(() => {
+                const modal = document.getElementById('upload-modal');
+                modal.classList.remove('active');
+                progressDiv.style.display = 'none';
+                fileInput.value = '';
+                
+                // Reset progress bar
+                progressFill.style.width = '0%';
+                progressText.textContent = 'Uploading...';
+            }, 2000);
+        }
+        
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('active');
+            }
+        }
+        
+        async function updateDocumentCounter() {
+            try {
+                const response = await fetch('/api/documents/stats/simple');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const documentCountElement = document.getElementById('document-count');
+                    const chunkCountElement = document.getElementById('chunk-count');
+                    
+                    if (documentCountElement) {
+                        documentCountElement.textContent = data.document_count;
+                        const files = Array.isArray(data.files) ? data.files : [];
+                        const tooltip = document.getElementById('doc-tooltip');
+                        if (tooltip) {
+                            if (!files.length) {
+                                tooltip.innerHTML = '<h4>No files in memory</h4>';
+                            } else {
+                                const list = files.map(f => `<li>${f.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
+                                tooltip.innerHTML = `<h4>Files in memory (${files.length})</h4><ul>${list}</ul>`;
+                            }
+                        }
+                    }
+                    if (chunkCountElement) {
+                        chunkCountElement.textContent = data.chunk_count;
+                    }
+                    
+                    console.log('Document counter updated:', data);
+                }
+            } catch (error) {
+                console.error('Failed to update document counter:', error);
+            }
+        }
+        
+        // Make functions available globally
+        window.showDocumentUpload = showDocumentUpload;
+        window.uploadDocuments = uploadDocuments;
+        window.closeModal = closeModal;
+        window.updateDocumentCounter = updateDocumentCounter;
+        
+        // Update counter on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize theme from localStorage or prefers-color-scheme
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+            document.body.classList.toggle('theme-dark', theme === 'dark');
+            updateThemeThumb();
+
+            updateDocumentCounter();
+            loadPromptTemplates();
+        });
+
+        function toggleTheme() {
+            const isDark = document.body.classList.toggle('theme-dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            updateThemeThumb();
+        }
+
+        function updateThemeThumb() {
+            const thumb = document.querySelector('.theme-thumb');
+            if (!thumb) return;
+            const isDark = document.body.classList.contains('theme-dark');
+            thumb.classList.toggle('dark', isDark);
+        }
+
+        async function resetIndex() {
+            if (!confirm('This will clear all indexed chunks and reset counters. Continue?')) return;
+            try {
+                const res = await fetch('/api/documents/reset', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    // Reset chat area to the original welcome message and update counters
+                    const messages = document.getElementById('chat-messages');
+                    if (messages) {
+                        messages.innerHTML = `
+                    <div class="welcome-message">
+                        <div class="message-content">
+                            <h2>👋 Welcome to LegalGPT</h2>
+                            <p>I'm your AI assistant for legal document search and analysis. I can help you:</n+                            </p>
+                            <ul>
+                                <li>Find specific information in contracts and legal documents</li>
+                                <li>Extract terms and conditions from agreements</li>
+                                <li>Summarize document content</li>
+                                <li>Locate files in your Sharepoint repository</li>
+                                <li>Answer questions about legal clauses and provisions</li>
+                            </ul>
+                            <p><strong>Ask me anything about your legal documents!</strong></p>
+                        </div>
+                    </div>`;
+                    }
+                    updateDocumentCounter();
+                    alert('Index reset completed.');
+                } else {
+                    alert('Reset failed.');
+                }
+            } catch (e) {
+                console.error('Reset error', e);
+                alert('Reset failed. Check server logs.');
+            }
+        }
+        
+        // Expose for other scripts if needed
+        window.toggleTheme = toggleTheme;
+        window.resetIndex = resetIndex;
+
+        // LegalGPT Mode Switching
+        function switchMode(mode) {
+            // Update mode buttons
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-mode="${mode}"]`).classList.add('active');
+            
+            // Update mode panels
+            document.querySelectorAll('.mode-panel').forEach(panel => {
+                panel.classList.remove('active');
+            });
+            document.getElementById(`${mode}-mode`).classList.add('active');
+            
+            console.log(`Switched to ${mode} mode`);
+
+            // Align chat height to sidebar when entering chat
+            if (typeof app !== 'undefined' && mode === 'chat' && app.syncChatHeightToSidebar) {
+                app.syncChatHeightToSidebar();
+            }
+
+            // Load files for Extract mode
+            if (mode === 'extract') {
+                loadExtractFiles();
+            }
+        }
+
+        // Load files into Extract dropdown
+        async function loadExtractFiles() {
+            try {
+                const response = await fetch('/api/legalgpt/extract/files-in-memory');
+                const data = await response.json();
+                
+                const dropdown = document.getElementById('extract-file-select');
+                if (!dropdown) return;
+                
+                // Clear and populate
+                dropdown.innerHTML = '<option value="">-- Choose a file --</option>';
+                
+                if (data.status === 'success' && data.files && data.files.length > 0) {
+                    data.files.forEach(filename => {
+                        const option = document.createElement('option');
+                        option.value = filename;
+                        option.textContent = filename;
+                        dropdown.appendChild(option);
+                    });
+                } else {
+                    dropdown.innerHTML = '<option value="">No files in memory</option>';
+                }
+            } catch (e) {
+                console.error('Failed to load extract files:', e);
+            }
+        }
+
+        // Extract terms from selected file
+        async function extractTermsFromMemory() {
+            const dropdown = document.getElementById('extract-file-select');
+            const filename = dropdown.value;
+            
+            if (!filename) {
+                alert('Please select a file from the dropdown');
+                return;
+            }
+            
+            const resultsContainer = document.getElementById('extract-results');
+            resultsContainer.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Extracting terms using AI...</div>';
+            
+            try {
+                const response = await fetch('/api/legalgpt/extract/from-memory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: filename })
+                });
+                
+                const data = await response.json();
+                console.log('Extraction response:', data);
+                
+                if (data.status === 'success') {
+                    console.log('Terms found:', data.terms ? data.terms.length : 0);
+                    displayExtractionResultsFromMemory(data);
+                } else {
+                    console.error('Extraction failed:', data);
+                    resultsContainer.innerHTML = `
+                        <div class="error">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Extraction failed: ${data.detail || 'Unknown error'}</p>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                console.error('Extraction error:', e);
+                resultsContainer.innerHTML = `
+                    <div class="error">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>Extraction failed: ${e.message}</p>
+                        <p class="error-details">Check console for details</p>
+                    </div>
+                `;
+            }
+        }
+
+        function displayExtractionResultsFromMemory(data) {
+            const resultsContainer = document.getElementById('extract-results');
+            const terms = data.terms || [];
+            
+            let html = `
+                <div class="extraction-results-header">
+                    <h3><i class="fas fa-file-contract"></i> Extracted Terms from ${data.filename}</h3>
+                    <p>${terms.length} key terms identified</p>
+                </div>
+                <div class="extraction-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Value</th>
+                                <th>Confidence</th>
+                                <th>Snippet</th>
+                                <th>Location</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            terms.forEach(term => {
+                const confidence = typeof term.confidence === 'number' ? (term.confidence * 100).toFixed(0) + '%' : 'N/A';
+                html += `
+                    <tr>
+                        <td><strong>${term.field || 'N/A'}</strong></td>
+                        <td>${term.value || 'Not found'}</td>
+                        <td>${confidence}</td>
+                        <td style="font-size: 0.85rem; font-style: italic;">${term.snippet || 'N/A'}</td>
+                        <td>${term.location || 'N/A'}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            resultsContainer.innerHTML = html;
+            
+            // Show export button
+            document.getElementById('extract-actions').style.display = 'flex';
+        }
+
+        // New Search Functions (using grouped results + AI summaries)
+        async function performSearch() {
+            const query = document.getElementById('search-input').value.trim();
+            const topK = parseInt(document.getElementById('search-top-k').value) || 6;
+            
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+            
+            const resultsContainer = document.getElementById('search-results');
+            resultsContainer.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Searching documents...</div>';
+            
+            try {
+                const response = await fetch('/api/search/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        query, 
+                        top_k_groups: topK,
+                        max_snippets_per_group: 3
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Search failed: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displaySearchResults(data, query);
+                
+            } catch (error) {
+                console.error('Search error:', error);
+                resultsContainer.innerHTML = `
+                    <div class="error">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>Search failed. Please try again.</p>
+                        <p class="error-details">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function displaySearchResults(data, query) {
+            const resultsContainer = document.getElementById('search-results');
+            const groups = data.groups || [];
+            const summary = data.summary || '';
+            const totalGroups = data.total_groups || 0;
+            
+            let html = `
+                <div class="search-results-header">
+                    <h3><i class="fas fa-search"></i> Found ${totalGroups} document${totalGroups !== 1 ? 's' : ''} for "${query}"</h3>
+                </div>
+            `;
+            
+            // Show AI summary if available
+            if (summary) {
+                html += `
+                    <div class="search-summary">
+                        <div class="summary-icon"><i class="fas fa-magic"></i></div>
+                        <div class="summary-text">${summary}</div>
+                    </div>
+                `;
+            }
+            
+            // Display each file group
+            groups.forEach((group, index) => {
+                html += `
+                    <div class="search-file-group">
+                        <div class="group-header">
+                            <div class="group-filename">
+                                <i class="fas fa-file-pdf"></i>
+                                <strong>${group.filename}</strong>
+                            </div>
+                            <div class="group-score">
+                                Score: ${(group.doc_score * 100).toFixed(0)}%
+                            </div>
+                        </div>
+                        <div class="group-snippets">
+                `;
+                
+                // Display each snippet in the group
+                group.snippets.forEach((snippet, snippetIndex) => {
+                    // Convert ** markers to <strong> tags for bold text
+                    const snippetText = snippet.text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    
+                    html += `
+                        <div class="snippet-item">
+                            <div class="snippet-text">${snippetText}</div>
+                            <div class="snippet-meta">
+                                Position: ${snippet.position + 1} | Relevance: ${(snippet.score * 100).toFixed(0)}%
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            });
+            
+            if (groups.length === 0) {
+                html += `
+                    <div class="no-results">
+                        <i class="fas fa-search"></i>
+                        <p>No results found for "${query}"</p>
+                        <p class="hint">Try different keywords or check your spelling</p>
+                    </div>
+                `;
+            }
+            
+            resultsContainer.innerHTML = html;
+        }
+
+        function handleSearchKeyDown(event) {
+            if (event.key === 'Enter') {
+                performSearch();
+            }
+        }
+
+        // LegalGPT Extract Functions
+        function handleExtractFiles(input) {
+            const files = Array.from(input.files);
+            if (files.length === 0) return;
+            
+            const resultsContainer = document.getElementById('extract-results');
+            const actionsContainer = document.getElementById('extract-actions');
+            
+            resultsContainer.innerHTML = '<div class="loading">Processing files...</div>';
+            actionsContainer.style.display = 'none';
+            
+            extractContracts(files);
+        }
+
+        async function extractContracts(files) {
+            const formData = new FormData();
+            files.forEach(file => {
+                formData.append('files', file);
+            });
+            
+            try {
+                const response = await fetch('/api/legalgpt/extract/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    displayExtractionResults(data.rows);
+                    window.extractionResults = data.rows; // Store for CSV export
+                    document.getElementById('extract-actions').style.display = 'block';
+                } else {
+                    throw new Error(data.detail || 'Extraction failed');
+                }
+            } catch (error) {
+                console.error('Extraction error:', error);
+                document.getElementById('extract-results').innerHTML = `
+                    <div class="error">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>Extraction failed: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function displayExtractionResults(results) {
+            const resultsContainer = document.getElementById('extract-results');
+            
+            let html = `
+                <div class="extraction-results-header">
+                    <h3>Extraction Results</h3>
+                    <p>Processed ${results.length} files</p>
+                </div>
+                <div class="extraction-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th>Counterparty</th>
+                                <th>Effective Date</th>
+                                <th>Expiration</th>
+                                <th>Payment Terms</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            results.forEach(result => {
+                const status = result.error ? 'Error' : 'Success';
+                const statusClass = result.error ? 'error' : 'success';
+                
+                html += `
+                    <tr>
+                        <td>${result.filename || 'Unknown'}</td>
+                        <td>${result.counterparty || '-'}</td>
+                        <td>${result.effective_date || '-'}</td>
+                        <td>${result.expiration_or_renewal || '-'}</td>
+                        <td>${result.payment_terms || '-'}</td>
+                        <td><span class="status ${statusClass}">${status}</span></td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            resultsContainer.innerHTML = html;
+        }
+
+        async function exportExtractionResults() {
+            if (!window.extractionResults) {
+                alert('No extraction results to export');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/legalgpt/extract/export', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ rows: window.extractionResults })
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `contract_extraction_${new Date().toISOString().slice(0, 10)}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    throw new Error('Export failed');
+                }
+            } catch (error) {
+                console.error('Export error:', error);
+                alert('Export failed. Please try again.');
+            }
+        }
+
+        // LegalGPT Prompt Templates Functions
+        async function loadPromptTemplates() {
+            try {
+                const response = await fetch('/api/legalgpt/prompts/');
+                const data = await response.json();
+                
+                displayPromptTemplates(data.templates);
+            } catch (error) {
+                console.error('Failed to load prompt templates:', error);
+            }
+        }
+
+        function displayPromptTemplates(templates) {
+            const sidebarContainer = document.getElementById('prompt-templates');
+            const modalContainer = document.getElementById('prompt-list');
+            
+            let sidebarHtml = '';
+            let modalHtml = '';
+            
+            templates.forEach(template => {
+                sidebarHtml += `
+                    <div class="prompt-template-item" onclick="usePromptTemplate('${template.id}')">
+                        <div class="prompt-label">${template.label}</div>
+                        <div class="prompt-preview">${template.template.substring(0, 50)}...</div>
+                    </div>
+                `;
+                
+                modalHtml += `
+                    <div class="prompt-editor-item">
+                        <div class="prompt-editor-header">
+                            <input type="text" value="${template.label}" class="prompt-label-input" data-id="${template.id}">
+                            <button onclick="removePrompt('${template.id}')" class="btn-remove">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                        <textarea class="prompt-template-input" data-id="${template.id}">${template.template}</textarea>
+                    </div>
+                `;
+            });
+            
+            sidebarContainer.innerHTML = sidebarHtml;
+            modalContainer.innerHTML = modalHtml;
+        }
+
+        function usePromptTemplate(templateId) {
+            // Find the template and use it in the current mode
+            const templates = document.querySelectorAll('.prompt-template-item');
+            templates.forEach(item => {
+                if (item.onclick.toString().includes(templateId)) {
+                    const preview = item.querySelector('.prompt-preview').textContent;
+                    const fullTemplate = preview.replace('...', ''); // This is simplified
+                    
+                    // Use in current mode
+                    const activeMode = document.querySelector('.mode-panel.active').id;
+                    if (activeMode === 'chat-mode') {
+                        document.getElementById('chat-input').value = fullTemplate;
+                    } else if (activeMode === 'search-mode') {
+                        document.getElementById('search-input').value = fullTemplate;
+                    }
+                }
+            });
+        }
+
+        function showPromptEditor() {
+            document.getElementById('prompt-editor-modal').classList.add('active');
+        }
+
+        function addNewPrompt() {
+            const promptList = document.getElementById('prompt-list');
+            const newId = 'new_prompt_' + Date.now();
+            
+            const newPromptHtml = `
+                <div class="prompt-editor-item">
+                    <div class="prompt-editor-header">
+                        <input type="text" placeholder="Template label" class="prompt-label-input" data-id="${newId}">
+                        <button onclick="removePrompt('${newId}')" class="btn-remove">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    <textarea class="prompt-template-input" data-id="${newId}" placeholder="Enter your prompt template here..."></textarea>
+                </div>
+            `;
+            
+            promptList.insertAdjacentHTML('beforeend', newPromptHtml);
+        }
+
+        function removePrompt(templateId) {
+            const item = document.querySelector(`[data-id="${templateId}"]`).closest('.prompt-editor-item');
+            item.remove();
+        }
+
+        async function savePrompts() {
+            const templates = [];
+            const items = document.querySelectorAll('.prompt-editor-item');
+            
+            items.forEach(item => {
+                const labelInput = item.querySelector('.prompt-label-input');
+                const templateInput = item.querySelector('.prompt-template-input');
+                
+                if (labelInput.value.trim() && templateInput.value.trim()) {
+                    templates.push({
+                        id: labelInput.dataset.id,
+                        label: labelInput.value.trim(),
+                        template: templateInput.value.trim()
+                    });
+                }
+            });
+            
+            try {
+                const response = await fetch('/api/legalgpt/prompts/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ templates })
+                });
+                
+                if (response.ok) {
+                    alert('Prompts saved successfully!');
+                    closeModal('prompt-editor-modal');
+                    loadPromptTemplates(); // Reload the sidebar
+                } else {
+                    throw new Error('Save failed');
+                }
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save prompts. Please try again.');
+            }
+        }
+    </script>
+    <script src="/static/app.js?v=1760559002"></script>
+</body>
+</html>

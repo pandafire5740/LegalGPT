@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+server.log
+server_start.log
+nohup.out
+
+# Uploads and user data
+uploads/
+data/faiss_index.bin
+data/chunks.pkl
+
+# Vector database
+chroma_db/
+
+# Redis
+redis-stable/
+redis-stable.tar.gz
+dump.rdb
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Documentation builds
+docs/_build/
+site/

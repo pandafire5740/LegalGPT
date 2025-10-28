@@ -1,0 +1,37 @@
+# FastAPI and web server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# (SharePoint removed)
+
+# Document processing
+python-docx==1.1.0
+PyPDF2==3.0.1
+python-magic==0.4.27
+
+# Vector database and embeddings
+chromadb==0.4.18
+
+# AI/LLM integration (OpenAI/LangChain removed)
+
+# Data processing
+pandas==2.1.4
+numpy==1.25.2
+
+# Environment and configuration
+python-dotenv==1.0.0
+pydantic==2.5.1
+pydantic-settings==2.1.0
+
+# Background tasks and scheduling (Celery removed; Redis kept for caching)
+redis==5.0.1
+
+# Logging and monitoring (structlog removed)
+
+# New search functionality
+faiss-cpu==1.7.4
+tiktoken==0.5.2
+pypdf==3.17.4
+python-docx==1.1.0
+openai>=1.30.0

@@ -1,0 +1,18 @@
+{
+  "templates": [
+    {
+      "id": "summarize_contract",
+      "label": "Summarize a contract in plain English",
+      "template": "Summarize the contract for a business audience. Include: scope, term, renewal, payment/fees, termination, liability, data protection, governing law. Use bullet points."
+    },
+    {
+      "id": "negotiation_playbook",
+      "label": "Negotiation playbook from redlines",
+      "template": "From the marked-up document and comments, list each issue, our preferred position, fallback, and sample language. Tag risk level (low/med/high)."
+    }
+  ]
+}
+
+
+
+
