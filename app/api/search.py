@@ -35,6 +35,7 @@ class FileGroup(BaseModel):
     filename: str
     doc_score: float
     snippets: List[Snippet]
+    keyword_summary: str = Field(default="", description="AI-generated summary explaining what the keyword means in this file's context")
 
 class SearchResponse(BaseModel):
     summary: str
@@ -86,7 +87,33 @@ async def search_documents(request: SearchRequest):
             max_snippets_per_group=request.max_snippets_per_group
         )
         
-        # Generate summary via shared LLM
+        # Generate per-file keyword context summaries
+        for group in groups:
+            filename = group.get("filename", "Unknown")
+            snippets = group.get("snippets", [])
+            
+            # Convert snippets to chunk format for LLM
+            chunks_for_summary = []
+            for snippet in snippets:
+                chunks_for_summary.append({
+                    "content": snippet.get("text", ""),
+                    "metadata": {"file_name": filename}
+                })
+            
+            # Generate AI summary for this file's keyword context
+            try:
+                keyword_summary = LLMEngine.summarize_file_keyword_context(
+                    filename=filename,
+                    keyword=request.query,
+                    chunks=chunks_for_summary,
+                    max_words=40
+                )
+                group["keyword_summary"] = keyword_summary
+            except Exception as e:
+                logger.warning(f"Failed to generate keyword summary for {filename}: {e}")
+                group["keyword_summary"] = f"Relevant content found for '{request.query}' in this document."
+        
+        # Generate overall summary via shared LLM
         if groups:
             # Flatten top snippets across groups for context
             top_chunks = []

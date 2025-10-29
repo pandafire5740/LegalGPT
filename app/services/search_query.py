@@ -8,6 +8,7 @@ from typing import List, Dict, Any
 from collections import defaultdict
 
 from app.services.vector_store import VectorStore
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -151,9 +152,19 @@ def search_and_group(query: str, top_k_groups: int = 6, max_snippets_per_group: 
     # 3. Group by file
     groups = group_by_file(boosted_results, max_snippets_per_file=max_snippets_per_group)
     
-    # 4. Extract snippets and format results
+    # 4. Filter groups by similarity threshold
+    threshold = settings.search_similarity_threshold
+    filtered_groups = [g for g in groups if g["doc_score"] >= threshold]
+    
+    if not filtered_groups:
+        logger.info(f"No groups met similarity threshold of {threshold:.2f}")
+        return []
+    
+    logger.info(f"Filtered {len(groups)} groups to {len(filtered_groups)} groups above threshold {threshold:.2f}")
+    
+    # 5. Extract snippets and format results
     results = []
-    for group in groups[:top_k_groups]:
+    for group in filtered_groups[:top_k_groups]:
         snippets = []
         for chunk_data in group["chunks"]:
             chunk = chunk_data["chunk"]

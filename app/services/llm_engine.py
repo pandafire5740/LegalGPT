@@ -231,6 +231,54 @@ class LLMEngine:
         return clean_output(completion)
 
     @staticmethod
+    def summarize_file_keyword_context(filename: str, keyword: str, chunks: List[Dict[str, Any]], max_words: int = 40) -> str:
+        """
+        Generate a brief AI summary explaining what a keyword means in the context of a specific file.
+        
+        Args:
+            filename: Name of the file
+            keyword: The search keyword/query term
+            chunks: List of relevant chunks from the file (with 'content' and 'metadata')
+            max_words: Maximum words in summary (default: 40)
+            
+        Returns:
+            Clean summary text explaining keyword context
+        """
+        if not chunks:
+            return f"No relevant content found for '{keyword}' in {filename}."
+        
+        # Combine top chunks for context (limit to avoid token limit)
+        context_lines = []
+        for c in chunks[:5]:
+            text = c.get("content") or c.get("text") or ""
+            text = _strip_meta(text)
+            context_lines.append(text[:600])
+        
+        context = "\n\n".join(context_lines)
+        
+        system = (
+            "You are LegalGPT, the internal legal assistant.\n"
+            "Speak naturally and clearly using plain English.\n"
+            "Be concise and factual."
+        )
+        user = (
+            f"File: {filename}\n\n"
+            f"Search keyword: {keyword}\n\n"
+            f"Relevant content from the file:\n{context}\n\n"
+            f"In 1-2 sentences, explain what '{keyword}' means or refers to in the context of this document. "
+            f"Focus on the specific meaning or usage within this file."
+        )
+        
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        
+        completion = _openai_complete(messages, max_tokens=100)
+        result = clean_output(completion)
+        return _trim_words(result, max_words)
+
+    @staticmethod
     def chat(
         query: str,
         history: List[Dict[str, str]],

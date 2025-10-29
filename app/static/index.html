@@ -831,6 +831,19 @@
                                 Score: ${(group.doc_score * 100).toFixed(0)}%
                             </div>
                         </div>
+                `;
+                
+                // Display keyword summary if available
+                if (group.keyword_summary) {
+                    html += `
+                        <div class="keyword-summary">
+                            <div class="keyword-summary-icon"><i class="fas fa-info-circle"></i></div>
+                            <div class="keyword-summary-text">${group.keyword_summary}</div>
+                        </div>
+                    `;
+                }
+                
+                html += `
                         <div class="group-snippets">
                 `;
                 

@@ -1393,6 +1393,40 @@ body.theme-dark .search-file-group {
     border-radius: 20px;
 }
 
+.keyword-summary {
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.08), rgba(167, 139, 250, 0.08));
+    border-left: 3px solid rgba(147, 51, 234, 0.5);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+body.theme-dark .keyword-summary {
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.15), rgba(167, 139, 250, 0.1));
+    border-left-color: rgba(167, 139, 250, 0.6);
+}
+
+.keyword-summary-icon {
+    color: rgba(147, 51, 234, 0.8);
+    font-size: 1.125rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+}
+
+body.theme-dark .keyword-summary-icon {
+    color: rgba(167, 139, 250, 0.9);
+}
+
+.keyword-summary-text {
+    color: var(--text-primary);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    flex: 1;
+}
+
 .group-snippets {
     display: flex;
     flex-direction: column;
