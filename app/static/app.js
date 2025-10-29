@@ -326,30 +326,108 @@ class LegalKnowledgeApp {
     }
 
     formatMessageContent(content) {
-        // Enhanced formatting with markdown-style support
-        let formatted = content;
-        
-        // Convert **bold** to <strong> tags (more subtle)
-        formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="highlight">$1</strong>');
-        
-        // Convert section headers (emoji + **text** at start of line)
-        formatted = formatted.replace(/^([📁📋💡🔍✅❌⚠️🎯📊🚀]+)\s+\*\*(.+?)\*\*:?/gm, 
-            '<div class="section-header"><span class="emoji">$1</span> <strong>$2</strong></div>');
-        
-        // Convert numbered lists (only if at start of line with clear spacing)
-        formatted = formatted.replace(/^\s*(\d+)\.\s+(.+)$/gm, '<div class="list-item"><span class="list-number">$1.</span> $2</div>');
-        
-        // Convert bullet points (only if at start of line)
-        formatted = formatted.replace(/^\s*[•]\s+(.+)$/gm, '<div class="list-item"><span class="bullet">•</span> $1</div>');
-        
-        // Make URLs clickable
-        formatted = formatted.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="link">$1</a>');
-        
-        // Convert line breaks
-        formatted = formatted.replace(/\n\n/g, '<br><br>');
-        formatted = formatted.replace(/\n/g, '<br>');
-        
-        return formatted;
+        if (!content) return '';
+
+        const escapeHtml = (text) => text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+        const applyInlineFormatting = (text) => {
+            let formatted = escapeHtml(text);
+
+            // Markdown-style links
+            formatted = formatted.replace(/\[(.*?)\]\((https?:\/\/[^\s]+)\)/g, '<a href="$2" target="_blank" class="link">$1</a>');
+
+            // Bold
+            formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="highlight">$1</strong>');
+
+            // Inline code
+            formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+            // Plain URLs
+            formatted = formatted.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" class="link">$1</a>');
+
+            return formatted;
+        };
+
+        const lines = content.split(/\r?\n/);
+        const output = [];
+        let listBuffer = [];
+        let listType = null; // 'ul' or 'ol'
+
+        const flushList = () => {
+            if (!listType || listBuffer.length === 0) return;
+            const items = listBuffer.map(item => `<li>${applyInlineFormatting(item)}</li>`).join('');
+            if (listType === 'ol') {
+                output.push(`<ol class="message-list numbered">${items}</ol>`);
+            } else {
+                output.push(`<ul class="message-list">${items}</ul>`);
+            }
+            listBuffer = [];
+            listType = null;
+        };
+
+        const pushParagraphBreak = () => {
+            if (output.length === 0 || output[output.length - 1] !== '<div class="paragraph-break"></div>') {
+                output.push('<div class="paragraph-break"></div>');
+            }
+        };
+
+        lines.forEach((line) => {
+            const trimmed = line.trim();
+
+            if (!trimmed) {
+                flushList();
+                pushParagraphBreak();
+                return;
+            }
+
+            const headerMatch = trimmed.match(/^([📁📋💡🔍✅❌⚠️🎯📊🚀]+)\s+\*\*(.+?)\*\*:?$/);
+            if (headerMatch) {
+                flushList();
+                output.push(`<div class="section-header"><span class="emoji">${headerMatch[1]}</span> <strong>${applyInlineFormatting(headerMatch[2])}</strong></div>`);
+                return;
+            }
+
+            const bulletMatch = trimmed.match(/^(?:[-*•])\s+(.+)/);
+            if (bulletMatch) {
+                if (listType !== 'ul') {
+                    flushList();
+                    listType = 'ul';
+                }
+                listBuffer.push(bulletMatch[1]);
+                return;
+            }
+
+            const numberedMatch = trimmed.match(/^(\d+)[\.\)]\s+(.+)/);
+            if (numberedMatch) {
+                if (listType !== 'ol') {
+                    flushList();
+                    listType = 'ol';
+                }
+                listBuffer.push(numberedMatch[2]);
+                return;
+            }
+
+            const kvMatch = trimmed.match(/^([A-Za-z0-9][^:]{0,80}):\s*(.+)$/);
+            if (kvMatch && !kvMatch[1].startsWith('http')) {
+                flushList();
+                output.push(
+                    `<div class="kv-row"><span class="kv-label">${applyInlineFormatting(kvMatch[1])}</span><span class="kv-value">${applyInlineFormatting(kvMatch[2])}</span></div>`
+                );
+                return;
+            }
+
+            flushList();
+            output.push(`<p>${applyInlineFormatting(trimmed)}</p>`);
+        });
+
+        flushList();
+
+        return output.join('');
     }
 
     sendExampleQuery(element) {

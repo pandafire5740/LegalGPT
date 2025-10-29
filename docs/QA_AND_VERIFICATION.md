@@ -14,6 +14,7 @@ The easiest way to verify your documents are loaded:
    - `Show me what's in memory`
    - `What do you know about?`
    - `Which documents are uploaded?`
+   - `In "Master Services Agreement", what are the renewal terms?`
 
 **Example Response:**
 ```
@@ -88,6 +89,10 @@ Bot: 📁 Documents Currently in Memory (3 total):
      1. Your_New_Document.pdf
      2. Complete_with_Docusign_Sapien-Playlist_MNDA.pdf
      3. test_legal_doc.txt
+
+You: "In Master_Services_Agreement_Long_Form.pdf, what are the renewal terms?"
+
+Bot: [Uses only that document in the response or notifies you if it can’t be found]
 ```
 
 **Option B - API Verification:**

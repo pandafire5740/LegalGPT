@@ -141,6 +141,7 @@ Open your browser to `http://localhost:8000` and explore three powerful modes:
 - Ask questions about your documents in natural language
 - Streaming responses powered by GPT-4o
 - Contextual answers grounded in your uploaded files
+- Reference specific filenames (full name or nickname) to focus responses on that document
 - Example: "What are the payment terms in the MSA?"
 
 #### Search Mode  
@@ -214,6 +215,12 @@ GET /api/documents/stats         # Get collection statistics
 - "Summarize all documents"
 - "What are the key terms in the NDA?"
 - "Find all payment deadlines"
+- "In “Master_Services_Agreement_Long_Form.pdf”, what is the renewal clause?"
+
+#### Targeted File Questions
+- Mention the filename (with or without extension) to zero in on that document
+- Aliases like "Master Services Agreement" or "MSA" are detected automatically
+- If a file can’t be located, LegalGPT will respond with a plain-language warning
 
 ## ⚡ Performance
 

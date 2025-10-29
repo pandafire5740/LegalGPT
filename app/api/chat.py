@@ -63,6 +63,11 @@ async def chat_query(request: ChatRequest) -> Dict[str, Any]:
         intent = detect_intent(request.message)
         # First pass: strict retrieval
         ctx = assemble_context(request.message, n_results=12, require_keyword=True)
+        user_query = ctx.get("processed_query") or request.message
+        user_query = ctx.get("processed_query") or request.message
+        targeted_filenames = ctx.get("targeted_filenames", []) or []
+        targeted_found = ctx.get("targeted_found", []) or []
+        missing_filenames = ctx.get("missing_filenames", []) or []
         
         if intent == "inventory":
             inv = ctx.get("inventory", [])
@@ -96,6 +101,18 @@ async def chat_query(request: ChatRequest) -> Dict[str, Any]:
         
         # Default: RAG using retrieved chunks
         relevant = ctx.get("retrieved_chunks", [])
+        if targeted_filenames and not targeted_found:
+            missing_list = ", ".join(sorted(set(targeted_filenames)))
+            return {
+                "status": "success",
+                "answer": (
+                    "I couldn’t find any indexed content for the file(s) you mentioned: "
+                    f"{missing_list}. Please check the filename spelling or upload the document again."
+                ),
+                "source_documents": [],
+                "query": request.message,
+            }
+
         # Retry with relaxed keyword requirement if strict returned little/no context
         if not relevant:
             try:
@@ -103,6 +120,15 @@ async def chat_query(request: ChatRequest) -> Dict[str, Any]:
             except Exception:
                 relevant = []
         top_context = relevant[:10]
+        focus_filenames = targeted_found if targeted_found else None
+
+        if not top_context:
+            return {
+                "status": "success",
+                "answer": "I couldn’t find any indexed passages that match your request yet. Try rephrasing or upload the relevant document first.",
+                "source_documents": [],
+                "query": request.message,
+            }
 
         # If greeting and no meaningful context, return a friendly greeting without LLM
         msg_lower = request.message.strip().lower()
@@ -125,13 +151,23 @@ async def chat_query(request: ChatRequest) -> Dict[str, Any]:
             }
         # Build history list
         history = conversation_history or []
-        allowed_names = []
-        for doc in top_context:
-            md = doc.get("metadata", {})
-            fname = md.get("file_name")
-            if fname:
-                allowed_names.append(fname)
-        answer = LLMEngine.chat(request.message, history, top_context, max_words=150, allowed_filenames=allowed_names)
+        if focus_filenames:
+            allowed_names = list(dict.fromkeys(focus_filenames))
+        else:
+            allowed_names = []
+            for doc in top_context:
+                md = doc.get("metadata", {})
+                fname = md.get("file_name")
+                if fname:
+                    allowed_names.append(fname)
+        answer = LLMEngine.chat(
+            user_query,
+            history,
+            top_context,
+            max_words=150,
+            allowed_filenames=allowed_names,
+            focus_filenames=focus_filenames,
+        )
 
         # Sanitize citations: if allowed list empty, strip all; else keep only allowed
         if answer:
@@ -144,6 +180,13 @@ async def chat_query(request: ChatRequest) -> Dict[str, Any]:
                 answer = re.sub(r"\[(.*?)\]", repl, answer)
             else:
                 answer = re.sub(r"\[(.*?)\]", "", answer)
+
+        if missing_filenames and focus_filenames:
+            missing_list = ", ".join(sorted(set(missing_filenames)))
+            answer += (
+                "\n\n⚠️ I couldn’t locate the following requested file(s): "
+                f"{missing_list}."
+            )
         # Build source documents for UI
         sources_dict = {}
         for doc in top_context:
@@ -175,14 +218,63 @@ async def chat_query_stream(request: ChatRequest):
     try:
         vector_store = VectorStore()
         # Strict retrieval first
+        intent = detect_intent(request.message)
         ctx = assemble_context(request.message, n_results=12, require_keyword=True)
+        if intent == "inventory":
+            inv = ctx.get("inventory", [])
+
+            def inventory_stream():
+                names = sorted({item.get("filename") for item in inv if item.get("filename")})
+                answer = "\n".join(names) if names else "No files in memory."
+                yield f"data: {answer}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(inventory_stream(), media_type="text/event-stream")
+
+        if intent == "capabilities":
+            def capabilities_stream():
+                answer = (
+                    "I can upload and index documents, search and summarize results, "
+                    "answer questions using your files, and extract key contract clauses for review."
+                )
+                yield f"data: {answer}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(capabilities_stream(), media_type="text/event-stream")
+
+        targeted_filenames = ctx.get("targeted_filenames", []) or []
+        targeted_found = ctx.get("targeted_found", []) or []
+        missing_filenames = ctx.get("missing_filenames", []) or []
+
         relevant = ctx.get("retrieved_chunks", [])
+        if targeted_filenames and not targeted_found:
+            def not_found_stream():
+                missing_list = ", ".join(sorted(set(targeted_filenames)))
+                yield (
+                    "data: "
+                    "I couldn’t find any indexed content for the file(s) you mentioned: "
+                    f"{missing_list}. Please check the filename spelling or upload the document again.\n\n"
+                )
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(not_found_stream(), media_type="text/event-stream")
+
         if not relevant:
             try:
                 relevant = vector_store.hybrid_search(request.message, n_results=12, require_keyword=False)
             except Exception:
                 relevant = []
         top_context = relevant[:10]
+        focus_filenames = targeted_found if targeted_found else None
+
+        if not top_context:
+            def empty_stream():
+                yield (
+                    "data: I couldn’t find any indexed passages that match your request yet. Try rephrasing or upload the relevant document first.\n\n"
+                )
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(empty_stream(), media_type="text/event-stream")
         history = []
         if request.conversation_history:
             history = [
@@ -192,8 +284,21 @@ async def chat_query_stream(request: ChatRequest):
 
         def event_stream():
             # Wrap OpenAI stream as SSE data events
-            for token in Streaming.chat_stream(request.message, history, top_context):
+            for token in Streaming.chat_stream(
+                user_query,
+                history,
+                top_context,
+                focus_filenames=focus_filenames,
+            ):
                 yield f"data: {token}\n\n"
+            if missing_filenames and focus_filenames:
+                missing_list = ", ".join(sorted(set(missing_filenames)))
+                yield (
+                    "data: "
+                    "\n\n⚠️ I couldn’t locate the following requested file(s): "
+                    f"{missing_list}."
+                    "\n\n"
+                )
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
     except Exception as e:

@@ -523,11 +523,43 @@ body.theme-dark .extract-placeholder i { color: #f59e0b; }
     font-size: 1.2em;
 }
 
+.message-content p {
+    margin: 0.35rem 0 0.85rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+
 .message-content .list-item {
     display: flex;
     align-items: flex-start;
     margin: 0.5rem 0;
     padding-left: 0.5rem;
+}
+
+.message-content ul.message-list,
+.message-content ol.message-list {
+    margin: 0.35rem 0 0.9rem;
+    padding-left: 1.25rem;
+    line-height: 1.6;
+}
+
+.message-content ul.message-list li,
+.message-content ol.message-list li {
+    margin: 0.25rem 0;
+}
+
+.message-content ul.message-list li::marker,
+.message-content ol.message-list li::marker {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.message-content ol.message-list.numbered {
+    list-style-type: decimal;
+}
+
+.message-content ul.message-list {
+    list-style-type: disc;
 }
 
 .message-content .list-number {
@@ -546,6 +578,29 @@ body.theme-dark .extract-placeholder i { color: #f59e0b; }
 
 .message-content .paragraph-break {
     height: 0.75rem;
+}
+
+.message-content .kv-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.4rem 0;
+}
+
+.message-content .kv-label {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.message-content .kv-value {
+    color: var(--text-primary);
+}
+
+.message-content code {
+    background: rgba(148, 163, 184, 0.15);
+    border-radius: 4px;
+    padding: 0.1rem 0.4rem;
+    font-size: 0.85rem;
 }
 
 .message-content .link {

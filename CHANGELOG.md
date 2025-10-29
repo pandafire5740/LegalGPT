@@ -18,6 +18,7 @@ All notable changes to LegalGPT will be documented in this file.
 - Light/Dark mode toggle with iOS-style liquid glass design
 - Document counter with hover tooltip showing filenames
 - Clear files button to reset vector store
+- Targeted file Q&A: chat detects filenames in the query and prioritizes those documents
 
 ### Changed
 - Chat now uses structured messages (system + history + user)
