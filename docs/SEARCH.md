@@ -130,34 +130,24 @@ LEGALGPT_SUMMARY_MODEL=mistralai/Mistral-7B-Instruct-v0.2
 
 ### POST /api/search/rebuild
 
-Rebuilds the FAISS index from all uploaded documents.
 
-**Response:**
-```json
-{
-  "status": "success",
-  "indexed_files": 15,
-  "total_chunks": 342,
-  "message": "Search index rebuilt successfully"
-}
-```
 
 ## How It Works
 
 ### 1. Document Ingestion
 - Extract text from PDFs (pypdf) and DOCX (python-docx)
 - Split into 600-token chunks with 100-token overlap
-- Generate embeddings using bge-base-en-v1.5
-- Build FAISS index (inner product for normalized vectors = cosine)
+- Generate embeddings using OpenAI text-embedding-3-small
+- Store in ChromaDB with metadata
 
 ### 2. Query Processing
 - Embed query with same model
-- Retrieve top 60 chunks via FAISS
-- Apply MMR diversification (λ=0.6) → 24 final chunks
+- Retrieve top results via ChromaDB similarity search
+- Apply keyword boost for exact phrase matches
 - Group by file, rank by `doc_score`, extract snippets
 
 ### 3. Summarization
-- Feed top 3 file groups to Mistral/Phi-3
+- Feed top file groups to LLM
 - Generate 2-3 sentence summary (≤50 words)
 - No fact invention, only restates snippets
 
@@ -185,9 +175,9 @@ curl -I https://huggingface.co
 
 ### Search Returns No Results
 
-1. Check if index is built: `curl http://localhost:8000/api/health`
-2. Rebuild: `curl -X POST http://localhost:8000/api/search/rebuild`
-3. Verify documents uploaded in UI
+1. Check if index is built: `curl http://localhost:8000/api/search/status`
+2. Verify documents uploaded in UI
+3. Check ChromaDB collection is populated
 
 ## Performance
 
@@ -196,19 +186,17 @@ curl -I https://huggingface.co
 | Operation | CPU | GPU |
 |-----------|-----|-----|
 | Query embedding | 50-100ms | 20-50ms |
-| FAISS search | 10-20ms | 10-20ms |
-| MMR + grouping | 20-50ms | 20-50ms |
+| ChromaDB search | 20-50ms | 20-50ms |
+| Grouping + snippets | 20-50ms | 20-50ms |
 | Summary generation | 10-30s | 2-5s |
 | **Total** | **11-31s** | **2-6s** |
 
 With 10-50 documents indexed.
 
-## No External APIs
+## External Dependencies
 
-✅ **No OpenAI** - runs 100% locally  
-✅ **No cloud dependencies** - all models cached locally  
-✅ **No API keys required** - completely self-contained  
-✅ **No usage costs** - free and open-source  
+- **OpenAI API**: Required for embeddings (text-embedding-3-small) and LLM responses
+- **ChromaDB**: Local vector database for similarity search  
 
 ## Next Steps
 

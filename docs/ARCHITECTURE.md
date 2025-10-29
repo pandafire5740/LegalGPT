@@ -12,7 +12,7 @@ legal-knowledge-platform/
 │   ├── app.py                    # Main FastAPI application
 │   ├── retrieval/
 │   │   ├── api.py               # Search API endpoints
-│   │   ├── indexer.py           # FAISS hybrid search implementation
+│   │   ├── indexer.py           # ChromaDB vector search implementation
 │   │   ├── ms_graph.py          # Microsoft Graph SharePoint integration
 │   │   └── slack_fetch.py       # Slack channel fetcher
 │   ├── extraction/
@@ -57,16 +57,15 @@ legal-knowledge-platform/
   - Time-based filtering
   - Comprehensive error handling
 
-### 3. **FAISS Hybrid Search Indexer** ✅
-- **File**: `backend/retrieval/indexer.py`
+### 3. **ChromaDB Vector Search** ✅
+- **File**: `app/services/vector_store.py`, `app/services/search_query.py`
 - **Features**:
-  - FAISS vector index with OpenAI embeddings
-  - TF-IDF keyword search
-  - Hybrid search combining vector + keyword
-  - Persistent index storage
-  - Document chunking and metadata
-  - Index statistics and management
-  - Global indexer instance management
+  - ChromaDB vector database with OpenAI embeddings
+  - Semantic similarity search
+  - Keyword boost for exact phrase matches
+  - Document grouping and snippet extraction
+  - Persistent storage with metadata
+  - Automatic index updates on document upload
 
 ### 4. **Contract Extraction Pipeline** ✅
 - **File**: `backend/extraction/parser.py`
@@ -176,8 +175,8 @@ python scripts/populate_index.py --sharepoint-folder "/" --slack-days 30
 ## 📊 **System Architecture**
 
 - **Backend**: FastAPI with modular design
-- **Vector Search**: FAISS + OpenAI embeddings
-- **Keyword Search**: TF-IDF with scikit-learn
+- **Vector Search**: ChromaDB + OpenAI embeddings
+- **Keyword Search**: Built-in keyword boost
 - **Document Processing**: PyPDF2 + python-docx
 - **AI Integration**: OpenAI GPT-4o-mini
 - **Authentication**: MSAL for Microsoft Graph
@@ -205,7 +204,7 @@ python scripts/populate_index.py --sharepoint-folder "/" --slack-days 30
 - ✅ Create scaffold folders and files
 - ✅ Implement Microsoft Graph SharePoint integration
 - ✅ Implement Slack fetchers for allowed channels
-- ✅ Implement FAISS indexer with hybrid search
+- ✅ Implement ChromaDB vector search with semantic similarity
 - ✅ Implement contract extraction pipeline
 - ✅ Create environment variables template
 - ✅ Add comprehensive documentation

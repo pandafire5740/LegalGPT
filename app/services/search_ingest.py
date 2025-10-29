@@ -1,15 +1,13 @@
 """
-Document ingestion: chunking, embedding, and FAISS indexing.
+Document ingestion utilities: chunking and embedding.
 Uses OpenAI embeddings (text-embedding-3-small).
 """
 import os
 import re
 import logging
-import pickle
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pathlib import Path
 import tiktoken
-import faiss
 import numpy as np
 from openai import OpenAI
 
@@ -17,13 +15,8 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Global state
-_index = None
-_chunks = []
 _openai_client = None
 
-FAISS_INDEX_PATH = "./data/faiss_index.bin"
-CHUNKS_PATH = "./data/chunks.pkl"
 
 def _get_openai_client():
     """Get or create the OpenAI client (singleton)."""
@@ -32,6 +25,7 @@ def _get_openai_client():
         _openai_client = OpenAI(api_key=settings.openai_api_key)
         logger.info("✅ OpenAI embeddings client initialized (text-embedding-3-small)")
     return _openai_client
+
 
 def chunk_text(text: str, file_id: str, filename: str, max_tokens: int = 600, overlap_tokens: int = 100) -> List[Dict[str, Any]]:
     """
@@ -97,6 +91,7 @@ def chunk_text(text: str, file_id: str, filename: str, max_tokens: int = 600, ov
     logger.info(f"Created {len(chunks)} chunks from {filename}")
     return chunks
 
+
 def embed_chunks(chunks: List[Dict[str, Any]]) -> np.ndarray:
     """Generate embeddings for chunks using OpenAI text-embedding-3-small."""
     client = _get_openai_client()
@@ -119,67 +114,3 @@ def embed_chunks(chunks: List[Dict[str, Any]]) -> np.ndarray:
     embeddings = np.array(all_embeddings, dtype=np.float32)
     logger.info(f"Generated embeddings: shape {embeddings.shape}")
     return embeddings
-
-def build_index(chunks: List[Dict[str, Any]], embeddings: np.ndarray):
-    """Build FAISS index from embeddings."""
-    global _index, _chunks
-    
-    dimension = embeddings.shape[1]
-    _index = faiss.IndexFlatIP(dimension)  # Inner product (cosine similarity after normalization)
-    
-    # Normalize embeddings for cosine similarity
-    faiss.normalize_L2(embeddings)
-    _index.add(embeddings)
-    
-    _chunks = chunks
-    logger.info(f"Built FAISS index with {len(chunks)} chunks (dim={dimension})")
-
-def save_index():
-    """Persist index and chunks to disk."""
-    os.makedirs("./data", exist_ok=True)
-    
-    # Save FAISS index
-    faiss.write_index(_index, FAISS_INDEX_PATH)
-    
-    # Save chunks metadata
-    with open(CHUNKS_PATH, "wb") as f:
-        pickle.dump(_chunks, f)
-    
-    logger.info(f"Saved index and chunks to disk ({len(_chunks)} chunks)")
-
-def load_index():
-    """Load index and chunks from disk."""
-    global _index, _chunks
-    
-    if not os.path.exists(FAISS_INDEX_PATH) or not os.path.exists(CHUNKS_PATH):
-        logger.warning("Index files not found on disk")
-        return False
-    
-    try:
-        _index = faiss.read_index(FAISS_INDEX_PATH)
-        
-        with open(CHUNKS_PATH, "rb") as f:
-            _chunks = pickle.load(f)
-        
-        logger.info(f"Loaded index and chunks from disk ({len(_chunks)} chunks)")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to load index: {e}")
-        return False
-
-def get_index():
-    """Get the current FAISS index."""
-    return _index
-
-def get_chunks():
-    """Get the current list of chunks."""
-    return _chunks
-
-def clear_index():
-    """Clear the index and chunks (for rebuild)."""
-    global _index, _chunks
-    _index = None
-    _chunks = []
-    logger.info("Cleared index and chunks")
-
-

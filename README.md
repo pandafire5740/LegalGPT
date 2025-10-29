@@ -60,11 +60,13 @@ pip install -r requirements.txt
 
 ### 2. Start Redis Server
 
-**Option A: Use included Redis:**
+**Option A: Use Docker Compose (Recommended):**
 ```bash
-cd redis-stable/src
-./redis-server --daemonize yes --port 6379
+docker compose up -d redis
 ```
+
+This starts Redis in a Docker container with persistent storage. The container will automatically restart if it stops.
+
 
 **Option B: Install system Redis:**
 ```bash
@@ -239,7 +241,8 @@ GET /api/documents/stats         # Get collection statistics
 ### Common Issues
 
 **"Redis connection failed"**
-- Start Redis: `cd redis-stable/src && ./redis-server --daemonize yes`
+- Start Redis with Docker Compose: `docker-compose up -d redis`
+- Or start included Redis: `cd redis-stable/src && ./redis-server --daemonize yes`
 - Or install system Redis (see Installation section)
 
 **"OpenAI API error"**

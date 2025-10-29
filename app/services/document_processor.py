@@ -9,6 +9,7 @@ import PyPDF2
 from datetime import datetime
 
 from app.services.vector_store import VectorStore
+from app.services.search_ingest import chunk_text as token_chunk_text
 
 
 logger = logging.getLogger(__name__)
@@ -135,40 +136,23 @@ class DocumentProcessor:
             logger.warning(f"Unsupported file type, file_name=file_name, extension: {file_extension}")
             return ""
     
-    def chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
+    def chunk_text(self, text: str, file_id: str = "", filename: str = "") -> List[str]:
         """
-        Split text into overlapping chunks for better vector search.
+        Split text into overlapping chunks using token-based chunking.
+        Uses the consolidated chunking function from search_ingest.
         
         Args:
             text: Text to chunk
-            chunk_size: Maximum size of each chunk
-            overlap: Number of characters to overlap between chunks
+            file_id: Optional file identifier for chunk metadata
+            filename: Optional filename for chunk metadata
             
         Returns:
             List of text chunks
         """
-        if len(text) <= chunk_size:
-            return [text]
-        
-        chunks = []
-        start = 0
-        
-        while start < len(text):
-            end = start + chunk_size
-            
-            # Try to break at sentence boundaries
-            if end < len(text):
-                # Look for sentence endings within the last 100 characters
-                last_sentence = text.rfind('.', start, end)
-                if last_sentence != -1 and last_sentence > start + chunk_size - 100:
-                    end = last_sentence + 1
-            
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append(chunk)
-            
-            start = end - overlap
-        
+        # Use token-based chunking from search_ingest
+        chunk_dicts = token_chunk_text(text, file_id or "default", filename or "unknown")
+        # Extract just the text content
+        chunks = [chunk["text"] for chunk in chunk_dicts]
         logger.info(f"Chunked text, original_length: {len(text)}, chunks: {len(chunks)}")
         return chunks
     
@@ -252,7 +236,7 @@ class DocumentProcessor:
             entities = self.extract_legal_entities(text)
             
             # Chunk text for vector storage
-            chunks = self.chunk_text(text)
+            chunks = self.chunk_text(text, file_id=file_info["name"], filename=file_info["name"])
             
             # Store in vector database
             doc_metadata = {

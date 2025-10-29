@@ -677,26 +677,9 @@ class LegalKnowledgeApp {
         
         progressText.textContent = `Upload complete! ${uploadedCount}/${totalFiles} files uploaded successfully.`;
         
-        // Trigger search index rebuild if any files were uploaded
+        // Refresh counters after upload completes
         if (uploadedCount > 0) {
-            progressText.textContent += ' Rebuilding search index...';
-            try {
-                const rebuildResponse = await fetch(`${this.apiBase}/search/rebuild`, {
-                    method: 'POST'
-                });
-                
-                if (rebuildResponse.ok) {
-                    const rebuildResult = await rebuildResponse.json();
-                    progressText.textContent = `✅ Upload complete! Indexed ${rebuildResult.indexed_files} files with ${rebuildResult.total_chunks} chunks.`;
-                    // Refresh counters after rebuild completes
-                    await this.loadSystemStats();
-                } else {
-                    progressText.textContent += ' (Index rebuild failed - please rebuild manually)';
-                }
-            } catch (error) {
-                console.error('Index rebuild error:', error);
-                progressText.textContent += ' (Index rebuild failed - please rebuild manually)';
-            }
+            await this.loadSystemStats();
         }
         
         // Close modal after a delay
