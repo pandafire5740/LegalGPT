@@ -1,42 +1,16 @@
 """
-Search query processing: FAISS search, MMR diversification, grouping, and snippet extraction.
+Search query processing: ChromaDB search, keyword boost, grouping, and snippet extraction.
 Uses OpenAI embeddings (text-embedding-3-small).
 """
 import re
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 from collections import defaultdict
-import numpy as np
-import faiss
 
-from app.config import settings
-from app.services import search_ingest
+from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-def embed_query(query: str) -> np.ndarray:
-    """Generate embedding for search query using OpenAI text-embedding-3-small."""
-    client = search_ingest._get_openai_client()
-    
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=query
-    )
-    embedding = np.array([response.data[0].embedding], dtype=np.float32)
-    
-    return embedding
-
-def search_similar(query_embedding: np.ndarray, top_n: int = 60) -> List[Tuple[int, float]]:
-    """Search FAISS index for top N most similar chunks."""
-    index = search_ingest.get_index()
-    if index is None:
-        return []
-    
-    distances, indices = index.search(query_embedding, top_n)
-    
-    # Return list of (chunk_idx, score)
-    results = [(int(idx), float(dist)) for idx, dist in zip(indices[0], distances[0]) if idx != -1]
-    return results
 
 def apply_keyword_boost(query: str, chunk_text: str, base_score: float) -> float:
     """
@@ -50,113 +24,55 @@ def apply_keyword_boost(query: str, chunk_text: str, base_score: float) -> float
         return base_score + 0.05
     return base_score
 
-def mmr_diversify(query_embedding: np.ndarray, candidates: List[Tuple[int, float]], lambda_param: float = 0.6, k: int = 24) -> List[Tuple[int, float]]:
-    """
-    Apply MMR (Maximal Marginal Relevance) to reduce near-duplicates.
-    
-    Args:
-        query_embedding: Query vector
-        candidates: List of (chunk_idx, score) tuples
-        lambda_param: Trade-off between relevance and diversity (0.6 recommended)
-        k: Number of results to keep
-    
-    Returns:
-        Diversified list of (chunk_idx, score) tuples
-    """
-    if len(candidates) <= k:
-        return candidates
-    
-    chunks = search_ingest.get_chunks()
-    index = search_ingest.get_index()
-    
-    # Get embeddings for all candidate chunks
-    candidate_indices = [idx for idx, _ in candidates]
-    candidate_scores = {idx: score for idx, score in candidates}
-    
-    selected = []
-    remaining = set(candidate_indices)
-    
-    # Start with highest scoring chunk
-    first_idx = candidates[0][0]
-    selected.append((first_idx, candidate_scores[first_idx]))
-    remaining.remove(first_idx)
-    
-    # Iteratively select chunks that maximize MMR score
-    while len(selected) < k and remaining:
-        best_score = -float('inf')
-        best_idx = None
-        
-        for idx in remaining:
-            # Relevance to query
-            relevance = candidate_scores[idx]
-            
-            # Max similarity to already selected chunks
-            max_sim = 0.0
-            idx_embedding = index.reconstruct(int(idx))
-            
-            for sel_idx, _ in selected:
-                sel_embedding = index.reconstruct(int(sel_idx))
-                similarity = float(np.dot(idx_embedding, sel_embedding))
-                max_sim = max(max_sim, similarity)
-            
-            # MMR score
-            mmr_score = lambda_param * relevance - (1 - lambda_param) * max_sim
-            
-            if mmr_score > best_score:
-                best_score = mmr_score
-                best_idx = idx
-        
-        if best_idx is not None:
-            selected.append((best_idx, candidate_scores[best_idx]))
-            remaining.remove(best_idx)
-        else:
-            break
-    
-    return selected
 
-def group_by_file(selected_chunks: List[Tuple[int, float]], max_snippets_per_file: int = 3) -> List[Dict[str, Any]]:
+def group_by_file(chunks_with_scores: List[Dict[str, Any]], max_snippets_per_file: int = 3) -> List[Dict[str, Any]]:
     """
-    Group chunks by file and keep top 3 per file.
+    Group chunks by file and keep top N per file.
     Calculate doc_score = max(snippet_scores) + 0.02 * min(2, num_snippets)
     """
-    chunks = search_ingest.get_chunks()
-    
-    # Group by file_id
+    # Group by file_name
     file_groups = defaultdict(list)
-    for chunk_idx, score in selected_chunks:
-        chunk = chunks[chunk_idx]
-        file_groups[chunk["file_id"]].append((chunk_idx, score, chunk))
+    for chunk in chunks_with_scores:
+        file_name = chunk.get("metadata", {}).get("file_name", "Unknown")
+        file_id = chunk.get("id", "")
+        score = chunk.get("similarity_score", 0.0)
+        file_groups[file_name].append({
+            "chunk": chunk,
+            "score": score,
+            "file_id": file_id
+        })
     
     # Process each file group
     groups = []
-    for file_id, file_chunks in file_groups.items():
+    for file_name, file_chunks in file_groups.items():
         # Sort by score and keep top N
-        file_chunks.sort(key=lambda x: x[1], reverse=True)
+        file_chunks.sort(key=lambda x: x["score"], reverse=True)
         file_chunks = file_chunks[:max_snippets_per_file]
         
         # Calculate doc_score
-        scores = [score for _, score, _ in file_chunks]
-        max_score = max(scores)
+        scores = [fc["score"] for fc in file_chunks]
+        max_score = max(scores) if scores else 0.0
         num_snippets = len(file_chunks)
         doc_score = max_score + 0.02 * min(2, num_snippets)
         
-        # Get filename from first chunk
-        filename = file_chunks[0][2]["filename"]
+        # Get file_id from metadata (use first chunk's file_id or filename)
+        file_id = file_chunks[0]["chunk"].get("metadata", {}).get("file_id", file_name) if file_chunks else file_name
         
         groups.append({
             "file_id": file_id,
-            "filename": filename,
+            "filename": file_name,
             "doc_score": doc_score,
-            "chunk_indices": [(idx, score) for idx, score, _ in file_chunks]
+            "chunks": file_chunks
         })
     
     # Sort groups by doc_score
     groups.sort(key=lambda x: x["doc_score"], reverse=True)
     
-    logger.info(f"Grouped {len(selected_chunks)} chunks into {len(groups)} file groups")
+    logger.info(f"Grouped {len(chunks_with_scores)} chunks into {len(groups)} file groups")
     return groups
 
-def extract_snippet(chunk_text: str, query: str, chunk_position: int) -> Dict[str, Any]:
+
+def extract_snippet(chunk_text: str, query: str, chunk_position: int = 0) -> Dict[str, Any]:
     """
     Extract a 2-3 sentence snippet around the best match.
     Bold exact query matches.
@@ -193,51 +109,60 @@ def extract_snippet(chunk_text: str, query: str, chunk_position: int) -> Dict[st
         "position": chunk_position
     }
 
+
 def search_and_group(query: str, top_k_groups: int = 6, max_snippets_per_group: int = 3) -> List[Dict[str, Any]]:
     """
     Main search flow:
-    1. Embed query
-    2. Search FAISS (top 60)
-    3. Apply keyword boost
-    4. MMR diversification (keep 24)
-    5. Group by file (top 3 per file)
-    6. Return top K groups with snippets
+    1. Search ChromaDB (get enough results for grouping)
+    2. Apply keyword boost
+    3. Group by file (top N per file)
+    4. Return top K groups with snippets
     """
     logger.info(f"Searching for: {query}")
     
-    # 1. Embed query
-    query_embedding = embed_query(query)
+    # Use VectorStore for search
+    vector_store = VectorStore()
     
-    # 2. Search FAISS
-    candidates = search_similar(query_embedding, top_n=60)
-    if not candidates:
+    # Get more results than needed to account for grouping and filtering
+    # We want top_k_groups * max_snippets_per_group, but get more for diversity
+    n_results = top_k_groups * max_snippets_per_group * 3  # Get extra for diversity
+    
+    # 1. Search ChromaDB
+    search_results = vector_store.search_similar(query, n_results=n_results)
+    
+    if not search_results:
         logger.warning("No search results found")
         return []
     
-    # 3. Apply keyword boost
-    chunks = search_ingest.get_chunks()
-    boosted_candidates = []
-    for chunk_idx, score in candidates:
-        chunk = chunks[chunk_idx]
-        boosted_score = apply_keyword_boost(query, chunk["text"], score)
-        boosted_candidates.append((chunk_idx, boosted_score))
+    # 2. Apply keyword boost
+    boosted_results = []
+    for result in search_results:
+        content = result.get("content", "")
+        base_score = result.get("similarity_score", 0.0)
+        boosted_score = apply_keyword_boost(query, content, base_score)
+        
+        # Update the score
+        result["similarity_score"] = boosted_score
+        boosted_results.append(result)
     
     # Re-sort after boosting
-    boosted_candidates.sort(key=lambda x: x[1], reverse=True)
+    boosted_results.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
     
-    # 4. MMR diversification
-    diversified = mmr_diversify(query_embedding, boosted_candidates, lambda_param=0.6, k=24)
+    # 3. Group by file
+    groups = group_by_file(boosted_results, max_snippets_per_file=max_snippets_per_group)
     
-    # 5. Group by file
-    groups = group_by_file(diversified, max_snippets_per_file=max_snippets_per_group)
-    
-    # 6. Extract snippets and format results
+    # 4. Extract snippets and format results
     results = []
     for group in groups[:top_k_groups]:
         snippets = []
-        for chunk_idx, score in group["chunk_indices"]:
-            chunk = chunks[chunk_idx]
-            snippet = extract_snippet(chunk["text"], query, chunk["position"])
+        for chunk_data in group["chunks"]:
+            chunk = chunk_data["chunk"]
+            content = chunk.get("content", "")
+            metadata = chunk.get("metadata", {})
+            chunk_position = metadata.get("chunk_index", 0)
+            score = chunk_data["score"]
+            
+            snippet = extract_snippet(content, query, chunk_position)
             snippet["score"] = score
             snippets.append(snippet)
         
@@ -250,4 +175,3 @@ def search_and_group(query: str, top_k_groups: int = 6, max_snippets_per_group: 
     
     logger.info(f"Returning {len(results)} file groups")
     return results
-

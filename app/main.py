@@ -55,7 +55,6 @@ async def startup_event():
     
     - Initializes ChromaDB vector store with OpenAI embeddings
     - Sets up document processor for file ingestion
-    - Loads FAISS search index from disk if available
     """
     logger.info("🚀 Starting LegalGPT Platform")
     
@@ -68,13 +67,6 @@ async def startup_event():
     document_processor = DocumentProcessor(vector_store)
     app.state.document_processor = document_processor
     logger.info("✅ Document processor ready")
-    
-    # Load FAISS search index from disk if available
-    from app.services import search_ingest
-    if search_ingest.load_index():
-        logger.info("✅ Search index loaded from disk")
-    else:
-        logger.info("ℹ️  No search index found - upload documents to create one")
     
     logger.info("🎉 LegalGPT ready at http://localhost:8000")
 

@@ -8,6 +8,10 @@ import subprocess
 import time
 from pathlib import Path
 
+# Load environment variables from .env file if it exists
+from dotenv import load_dotenv
+load_dotenv()
+
 def check_requirements():
     """Check if all requirements are met."""
     print("🔍 Checking requirements...")
@@ -38,9 +42,21 @@ def start_application():
         print("❌ Requirements check failed. Please fix the issues above.")
         return False
     
+    # Read configuration from environment variables with defaults
+    debug_mode = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes")
+    host = os.getenv("HOST", "localhost")
+    port = int(os.getenv("PORT", "8000"))
+    
     print("\n📚 Starting the main application...")
-    print("   Access the web interface at: http://localhost:8000")
-    print("   API documentation at: http://localhost:8000/docs")
+    print(f"   Access the web interface at: http://{host}:{port}")
+    print(f"   API documentation at: http://{host}:{port}/docs")
+    
+    # Enable hot reloading in development mode
+    if debug_mode:
+        print("   🔥 Hot reloading enabled (development mode)")
+    else:
+        print("   ⚙️  Hot reloading disabled (production mode)")
+    
     print("\n💡 To also run background tasks, open additional terminals and run:")
     print("   celery -A app.services.file_monitor.celery_app worker --loglevel=info")
     print("   celery -A app.services.file_monitor.celery_app beat --loglevel=info")
@@ -48,13 +64,18 @@ def start_application():
     
     try:
         # Start the FastAPI application
-        # Run without --reload to avoid mid-request reloads causing failures
-        subprocess.run([
+        uvicorn_args = [
             sys.executable, "-m", "uvicorn",
             "app.main:app",
-            "--host", "0.0.0.0",
-            "--port", "8000"
-        ])
+            "--host", host,
+            "--port", str(port)
+        ]
+        
+        # Add --reload flag in development mode
+        if debug_mode:
+            uvicorn_args.append("--reload")
+        
+        subprocess.run(uvicorn_args)
     except KeyboardInterrupt:
         print("\n👋 Application stopped.")
         return True

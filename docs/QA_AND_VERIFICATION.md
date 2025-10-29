@@ -136,10 +136,10 @@ curl http://localhost:8000/api/search/status
 ### ❌ Document appears in list but not searchable
 
 **Solution:**
-The document is in ChromaDB but not in the FAISS search index. Rebuild:
-```bash
-curl -X POST http://localhost:8000/api/search/rebuild
-```
+The document should be immediately searchable in ChromaDB. If it's not appearing:
+1. Check if the document was uploaded successfully
+2. Verify the document is in ChromaDB: `curl http://localhost:8000/api/search/status`
+3. Check server logs for processing errors
 
 ### ❌ Search returns no results
 
@@ -152,29 +152,21 @@ curl -X POST http://localhost:8000/api/search/rebuild
    - Search for common legal terms: "NDA", "confidential", "agreement"
    - If still no results, check if document was processed correctly
 
-3. **Rebuild index:**
+3. **Check ChromaDB status:**
    ```bash
-   curl -X POST http://localhost:8000/api/search/rebuild
+   curl http://localhost:8000/api/search/status
    ```
 
 ---
 
 ## Understanding Document Sources
 
-### ChromaDB (Chat Storage)
-- Used by the **Chat** feature
+### ChromaDB (All Features)
+- Used by **Chat** and **Search** features
 - Stores document chunks with metadata
-- Enables hybrid search (vector + keyword)
-- Updated immediately on upload
-
-### FAISS Index (Advanced Search)
-- Used by the **Search** tab
 - Enables semantic similarity search
 - Provides grouped results with AI summaries
-- Updated via auto-rebuild after upload
-
-### Both are Checked
-When you ask "What documents do you have?", the chat checks **both** sources and deduplicates the results!
+- Updated immediately on upload (no rebuild needed)
 
 ---
 

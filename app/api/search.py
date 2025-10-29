@@ -4,13 +4,13 @@ New search API endpoint with grouped results and AI summaries.
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-from functools import lru_cache
+from typing import List, Dict, Any
 import time
 from collections import defaultdict
 
 from app.services import search_query
 from app.services.llm_engine import LLMEngine
+from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -122,91 +122,18 @@ async def search_documents(request: SearchRequest):
         logger.error(f"Search failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
-@router.post("/rebuild")
-async def rebuild_index():
-    """
-    Rebuild the search index from all uploaded documents.
-    This should be called after uploading new documents.
-    """
-    try:
-        from app.services import search_ingest
-        from app.api import documents
-        import tempfile
-        import shutil
-        from pathlib import Path
-        
-        logger.info("Starting index rebuild...")
-        
-        # Clear existing index
-        search_ingest.clear_index()
-        
-        # Get all documents from ChromaDB
-        from app.services.vector_store import VectorStore
-        vector_store = VectorStore()
-        
-        # Get all unique files
-        all_docs = vector_store.collection.get(include=['metadatas', 'documents'])
-        
-        if not all_docs['metadatas']:
-            logger.warning("No documents found to index")
-            return {"status": "success", "message": "No documents to index", "indexed_files": 0}
-        
-        # Group by file
-        files_seen = set()
-        all_chunks = []
-        
-        for metadata, content in zip(all_docs['metadatas'], all_docs['documents']):
-            file_name = metadata.get('file_name', 'Unknown')
-            file_path = metadata.get('file_path', '')
-            
-            if file_name not in files_seen:
-                files_seen.add(file_name)
-                
-                # For each unique file, chunk it with the new strategy
-                file_id = f"f_{len(files_seen)}"
-                chunks = search_ingest.chunk_text(content, file_id, file_name)
-                all_chunks.extend(chunks)
-        
-        if not all_chunks:
-            logger.warning("No chunks created")
-            return {"status": "success", "message": "No chunks created", "indexed_files": 0}
-        
-        # Generate embeddings
-        logger.info(f"Generating embeddings for {len(all_chunks)} chunks...")
-        embeddings = search_ingest.embed_chunks(all_chunks)
-        
-        # Build index
-        search_ingest.build_index(all_chunks, embeddings)
-        
-        # Save to disk
-        search_ingest.save_index()
-        
-        # Clear cache
-        _cache.clear()
-        
-        logger.info(f"Index rebuild complete: {len(files_seen)} files, {len(all_chunks)} chunks")
-        return {
-            "status": "success",
-            "message": "Index rebuilt successfully",
-            "indexed_files": len(files_seen),
-            "total_chunks": len(all_chunks)
-        }
-        
-    except Exception as e:
-        logger.error(f"Index rebuild failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Index rebuild failed: {str(e)}")
-
 @router.get("/status", response_model=IndexStatusResponse)
 async def get_index_status():
     """
     Get the current status of the search index, including all indexed documents.
     """
     try:
-        from app.services import search_ingest
+        vector_store = VectorStore()
         
-        chunks = search_ingest.get_chunks()
+        # Get all documents from ChromaDB
+        all_docs = vector_store.collection.get(include=['metadatas'])
         
-        if not chunks:
+        if not all_docs.get('metadatas'):
             return IndexStatusResponse(
                 status="empty",
                 total_files=0,
@@ -216,23 +143,23 @@ async def get_index_status():
         
         # Group chunks by file
         file_groups = defaultdict(list)
-        for chunk in chunks:
-            file_id = chunk.get("file_id", "unknown")
-            filename = chunk.get("filename", "Unknown")
-            file_groups[(file_id, filename)].append(chunk)
+        for metadata in all_docs['metadatas']:
+            file_name = metadata.get('file_name', 'Unknown')
+            file_id = metadata.get('file_id', file_name)
+            file_groups[(file_id, file_name)].append(metadata)
         
         # Build document list
         documents = []
-        for (file_id, filename), file_chunks in file_groups.items():
+        for (file_id, filename), file_metadatas in file_groups.items():
             # Determine source based on metadata
             source = "local"  # Default
-            if file_chunks and "source" in file_chunks[0]:
-                source = file_chunks[0]["source"]
+            if file_metadatas and "source" in file_metadatas[0]:
+                source = file_metadatas[0]["source"]
             
             documents.append(IndexedDocument(
                 file_id=file_id,
                 filename=filename,
-                chunk_count=len(file_chunks),
+                chunk_count=len(file_metadatas),
                 source=source
             ))
         
@@ -242,7 +169,7 @@ async def get_index_status():
         return IndexStatusResponse(
             status="ready",
             total_files=len(documents),
-            total_chunks=len(chunks),
+            total_chunks=len(all_docs['metadatas']),
             documents=documents
         )
         

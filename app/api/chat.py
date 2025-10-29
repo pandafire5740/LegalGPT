@@ -220,6 +220,8 @@ async def chat_query_stream(request: ChatRequest):
         # Strict retrieval first
         intent = detect_intent(request.message)
         ctx = assemble_context(request.message, n_results=12, require_keyword=True)
+    
+        user_query = ctx.get("processed_query") or request.message
         if intent == "inventory":
             inv = ctx.get("inventory", [])
 
