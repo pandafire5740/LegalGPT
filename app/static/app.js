@@ -17,12 +17,77 @@ class LegalKnowledgeApp {
         this.setupEventListeners();
         // Align chat panel height to sidebar on initial load
         this.syncChatHeightToSidebar();
+        
+        // Setup chat input handler - try immediately and also after DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => this.setupChatInputHandler());
+        } else {
+            this.setupChatInputHandler();
+        }
+        // Also try after a delay as backup
+        setTimeout(() => this.setupChatInputHandler(), 500);
+    }
+
+    setupChatInputHandler() {
+        // Try multiple times to ensure element exists
+        const trySetup = () => {
+            const chatInput = document.getElementById('chat-input');
+            if (!chatInput) {
+                console.log('Chat input not found, retrying...');
+                setTimeout(trySetup, 100);
+                return;
+            }
+            
+            console.log('Setting up chat input handler on element:', chatInput);
+            
+            // Store reference to this for use in handler
+            const self = this;
+            
+            // Handle Enter key to send message (Shift+Enter for new line)
+            const handleKeyDown = function(event) {
+                console.log('Keydown event fired!', event.key, 'Shift:', event.shiftKey, 'Ctrl:', event.ctrlKey, 'Meta:', event.metaKey);
+                if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+                    console.log('Enter pressed without modifiers - preventing default and sending');
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation();
+                    self.sendMessage();
+                    return false;
+                }
+            };
+            
+            // Remove old listener if it exists (by cloning)
+            const oldInput = chatInput;
+            const newInput = oldInput.cloneNode(true);
+            oldInput.parentNode.replaceChild(newInput, oldInput);
+            
+            // Re-attach input handler for auto-resize
+            newInput.addEventListener('input', this.autoResizeTextarea.bind(this));
+            
+            // Attach keydown handler with capture phase and non-passive
+            newInput.addEventListener('keydown', handleKeyDown, true);
+            
+            // Also try keypress as backup
+            newInput.addEventListener('keypress', function(event) {
+                console.log('Keypress event:', event.key);
+                if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+                    event.preventDefault();
+                    self.sendMessage();
+                }
+            }, true);
+            
+            console.log('Event listeners attached. Try pressing Enter now.');
+        };
+        
+        trySetup();
     }
 
     setupEventListeners() {
-        // Auto-resize textarea
+        // Auto-resize textarea (will be re-setup in setupChatInputHandler)
         const chatInput = document.getElementById('chat-input');
-        chatInput.addEventListener('input', this.autoResizeTextarea);
+        if (chatInput) {
+            chatInput.addEventListener('input', this.autoResizeTextarea.bind(this));
+        }
         
         // Modal click outside to close
         document.addEventListener('click', (e) => {
@@ -140,9 +205,12 @@ class LegalKnowledgeApp {
     }
 
     handleKeyDown(event) {
-        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        // Send on Enter, but allow Shift+Enter for new lines
+        if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
+            event.stopPropagation();
             this.sendMessage();
+            return false;
         }
     }
 
@@ -705,7 +773,12 @@ class LegalKnowledgeApp {
 
 // Global functions for HTML event handlers
 function handleKeyDown(event) {
-    app.handleKeyDown(event);
+    if (typeof app !== 'undefined' && app) {
+        const result = app.handleKeyDown(event);
+        if (result === false || (event.key === 'Enter' && !event.shiftKey)) {
+            return false;
+        }
+    }
 }
 
 function showDocumentUpload() {

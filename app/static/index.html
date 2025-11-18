@@ -147,14 +147,14 @@
                             id="chat-input" 
                             placeholder="Ask about your legal documents..."
                             rows="1"
-                            onkeydown="handleKeyDown(event)"
+                            onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey){event.preventDefault();sendMessage();return false;}"
                         ></textarea>
                         <button id="send-button" onclick="sendMessage()">
                             <i class="fas fa-paper-plane"></i>
                         </button>
                     </div>
                     <div class="input-footer">
-                        <small>Press Ctrl+Enter to send • Your conversations help improve the system</small>
+                        <small>Press Enter to send • Shift+Enter for new line • Your conversations help improve the system</small>
                         </div>
                     </div>
                 </div>
