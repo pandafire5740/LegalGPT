@@ -4,7 +4,7 @@ from typing import Dict, Any
 import logging
 
 from app.services.vector_store import VectorStore
-from app.services import ai_service
+from app.dependencies import get_vector_store
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -21,7 +21,9 @@ async def health_check() -> Dict[str, Any]:
 
 
 @router.get("/detailed")
-async def detailed_health_check() -> Dict[str, Any]:
+async def detailed_health_check(
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Detailed health check including service dependencies."""
     health_status = {
         "status": "healthy",
@@ -33,7 +35,6 @@ async def detailed_health_check() -> Dict[str, Any]:
     try:
         # Check vector store
         try:
-            vector_store = VectorStore()
             stats = vector_store.get_collection_stats()
             health_status["checks"]["vector_store"] = {
                 "status": "healthy",
@@ -54,25 +55,3 @@ async def detailed_health_check() -> Dict[str, Any]:
         health_status["error"] = str(e)
     
     return health_status
-
-
-@router.get("/models")
-async def model_status() -> Dict[str, Any]:
-    """Check status of the chat model (Phi-3 only)."""
-    try:
-        model_info = {
-            "phi": {
-                "name": "Phi-3-mini-4k-instruct",
-                "size": "~2GB",
-                "status": ai_service._loading_status.get("phi", "not_loaded"),
-                "loaded": "phi" in ai_service._chat_pipelines
-            }
-        }
-        return {
-            "status": "success",
-            "models": model_info,
-            "total_loaded": len(ai_service._chat_pipelines)
-        }
-    except Exception as e:
-        logger.error(f"Model status check failed: {e}")
-        return {"status": "error", "error": str(e)}

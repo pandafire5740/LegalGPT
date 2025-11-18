@@ -2,7 +2,7 @@
 New search API endpoint with grouped results and AI summaries.
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 import time
@@ -11,6 +11,7 @@ from collections import defaultdict
 from app.services import search_query
 from app.services.llm_engine import LLMEngine
 from app.services.vector_store import VectorStore
+from app.dependencies import get_vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,10 @@ class IndexStatusResponse(BaseModel):
     documents: List[IndexedDocument]
 
 @router.post("/", response_model=SearchResponse)
-async def search_documents(request: SearchRequest):
+async def search_documents(
+    request: SearchRequest,
+    vector_store: VectorStore = Depends(get_vector_store)
+):
     """
     Search documents with grouped results and AI summary.
     
@@ -81,11 +85,17 @@ async def search_documents(request: SearchRequest):
                 )
         
         # Perform search
+        logger.info(f"Starting search for query: '{request.query}'")
         groups = search_query.search_and_group(
+            vector_store=vector_store,
             query=request.query,
             top_k_groups=request.top_k_groups,
             max_snippets_per_group=request.max_snippets_per_group
         )
+        
+        logger.info(f"Search returned {len(groups)} file groups")
+        if not groups:
+            logger.warning(f"No groups found for query: '{request.query}' - check similarity threshold and vector store content")
         
         # Generate per-file keyword context summaries
         for group in groups:
@@ -138,6 +148,14 @@ async def search_documents(request: SearchRequest):
         elapsed = time.time() - start_time
         logger.info(f"Search completed in {elapsed:.2f}s, found {len(groups)} groups")
         
+        # Log final response details
+        if groups:
+            logger.info(f"Returning {len(groups)} groups with {sum(len(g.get('snippets', [])) for g in groups)} total snippets")
+            for i, group in enumerate(groups, 1):
+                logger.debug(f"  Group {i}: {group.get('filename')} - {len(group.get('snippets', []))} snippets, doc_score={group.get('doc_score', 0):.3f}")
+        else:
+            logger.warning(f"Returning empty results for query: '{request.query}'")
+        
         return SearchResponse(
             summary=summary,
             groups=[FileGroup(**group) for group in groups],
@@ -150,12 +168,13 @@ async def search_documents(request: SearchRequest):
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 @router.get("/status", response_model=IndexStatusResponse)
-async def get_index_status():
+async def get_index_status(
+    vector_store: VectorStore = Depends(get_vector_store)
+):
     """
     Get the current status of the search index, including all indexed documents.
     """
     try:
-        vector_store = VectorStore()
         
         # Get all documents from ChromaDB
         all_docs = vector_store.collection.get(include=['metadatas'])

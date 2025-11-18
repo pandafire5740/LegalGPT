@@ -1,5 +1,5 @@
 """Document management API endpoints."""
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Depends
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import logging
@@ -11,6 +11,7 @@ from app.config import settings
 from app.services.document_processor import DocumentProcessor
 from app.services.vector_store import VectorStore
 from app.services.llm_engine import LLMEngine
+from app.dependencies import get_vector_store
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -18,11 +19,11 @@ logger = logging.getLogger(__name__)
 
 @router.get("/list")
 async def list_documents(
-    folder_path: Optional[str] = Query(None, description="(deprecated) SharePoint folder path")
+    folder_path: Optional[str] = Query(None, description="(deprecated) SharePoint folder path"),
+    vector_store: VectorStore = Depends(get_vector_store)
 ) -> Dict[str, Any]:
     """List all documents known to the local vector store (SharePoint removed)."""
     try:
-        vector_store = VectorStore()
         all_docs = vector_store.collection.get(limit=1000, include=['metadatas'])
         unique_files = {}
         for md in all_docs.get('metadatas') or []:
@@ -50,11 +51,11 @@ async def list_documents(
 @router.get("/search")
 async def search_documents(
     query: str = Query(..., description="Search query"),
-    n_results: int = Query(10, description="Number of results to return")
+    n_results: int = Query(10, description="Number of results to return"),
+    vector_store: VectorStore = Depends(get_vector_store)
 ) -> Dict[str, Any]:
     """Search documents using vector similarity."""
     try:
-        vector_store = VectorStore()
         results = vector_store.hybrid_search(query, n_results=n_results)
         
         return {
@@ -70,10 +71,12 @@ async def search_documents(
 
 
 @router.get("/{file_name}/info")
-async def get_document_info(file_name: str) -> Dict[str, Any]:
+async def get_document_info(
+    file_name: str,
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Get detailed information about a specific document from local vector store."""
     try:
-        vector_store = VectorStore()
         chunks = vector_store.search_by_file(file_name)
         if not chunks:
             raise HTTPException(status_code=404, detail=f"Document '{file_name}' not found in vector database")
@@ -96,10 +99,12 @@ async def get_document_info(file_name: str) -> Dict[str, Any]:
 
 
 @router.get("/{file_name}/summary")
-async def get_document_summary(file_name: str) -> Dict[str, Any]:
+async def get_document_summary(
+    file_name: str,
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Get AI-generated summary of a document using GPT-4o."""
     try:
-        vector_store = VectorStore()
         chunks = vector_store.search_by_file(file_name)
         
         if not chunks:
@@ -163,10 +168,12 @@ async def process_document(
 
 
 @router.delete("/{file_name}")
-async def delete_document_from_vector_store(file_name: str) -> Dict[str, Any]:
+async def delete_document_from_vector_store(
+    file_name: str,
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Remove a document from the vector database (not from Sharepoint)."""
     try:
-        vector_store = VectorStore()
         deleted_count = vector_store.delete_document_chunks(file_name)
         
         if deleted_count == 0:
@@ -186,10 +193,11 @@ async def delete_document_from_vector_store(file_name: str) -> Dict[str, Any]:
 
 
 @router.get("/stats")
-async def get_document_stats() -> Dict[str, Any]:
+async def get_document_stats(
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Get statistics about the document collection (SharePoint removed)."""
     try:
-        vector_store = VectorStore()
         stats = vector_store.get_collection_stats()
         
         # SharePoint stats removed
@@ -210,10 +218,11 @@ async def get_document_stats() -> Dict[str, Any]:
 
 
 @router.get("/stats/simple")
-async def get_simple_stats() -> Dict[str, Any]:
+async def get_simple_stats(
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Get simple document statistics without SharePoint dependency."""
     try:
-        vector_store = VectorStore()
         
         # Get all documents from vector store
         all_docs = vector_store.collection.get(
@@ -248,10 +257,11 @@ async def get_simple_stats() -> Dict[str, Any]:
 
 
 @router.post("/reset")
-async def reset_documents_index() -> Dict[str, Any]:
+async def reset_documents_index(
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Clear all indexed files and reset counters (vector store recreation)."""
     try:
-        vector_store = VectorStore()
         result = vector_store.reset_store()
         return {
             "status": "success",
@@ -266,7 +276,8 @@ async def reset_documents_index() -> Dict[str, Any]:
 @router.post("/upload")
 async def upload_document(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    vector_store: VectorStore = Depends(get_vector_store)
 ) -> Dict[str, Any]:
     """Upload and process a local document."""
     try:
@@ -287,8 +298,7 @@ async def upload_document(
         # Check duplicates ONLY in vector store ("in memory"); allow overwriting disk file if not in memory
         file_path = uploads_dir / file.filename
         try:
-            vs = VectorStore()
-            existing = vs.collection.get(where={"file_name": file.filename}, include=["ids"])
+            existing = vector_store.collection.get(where={"file_name": file.filename}, include=["ids"])
             if existing and existing.get("ids"):
                 return {
                     "status": "exists",
@@ -320,15 +330,17 @@ async def upload_document(
         }
         
         # Start background processing
+        # Pass vector_store to background task to use the same instance
         background_tasks.add_task(
             _process_uploaded_document_background,
             file_content=file_content,
-            file_info=file_info
+            file_info=file_info,
+            vector_store=vector_store
         )
         
         # Generate quick LLM summary (<50 words) from raw text for UI feedback
         try:
-            processor = DocumentProcessor(VectorStore())
+            processor = DocumentProcessor(vector_store)
             extracted_text = processor.extract_text(file_content, file.filename)
             short_summary = LLMEngine.summarize_text(file.filename, extracted_text, max_words=50) if extracted_text else ""
         except Exception:
@@ -351,10 +363,11 @@ async def upload_document(
 
 
 @router.get("/local")
-async def list_local_documents() -> Dict[str, Any]:
+async def list_local_documents(
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """List all locally uploaded documents."""
     try:
-        vector_store = VectorStore()
         
         # Get all documents and filter for local ones
         all_docs = vector_store.collection.get(
@@ -404,12 +417,11 @@ async def _process_document_background(file_name: str):
     logger.info(f"_process_document_background called for {file_name}, but SharePoint is disabled.")
 
 
-async def _process_uploaded_document_background(file_content: bytes, file_info: Dict[str, Any]):
+async def _process_uploaded_document_background(file_content: bytes, file_info: Dict[str, Any], vector_store: VectorStore):
     """Background task to process an uploaded document."""
     try:
         logger.info(f"Processing uploaded document, file_name: {file_info['name']}")
         
-        vector_store = VectorStore()
         document_processor = DocumentProcessor(vector_store)
         
         # Process the document

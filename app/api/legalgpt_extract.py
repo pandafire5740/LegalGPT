@@ -1,5 +1,5 @@
 """Extract endpoints for LegalGPT - extract terms from files in memory."""
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -10,6 +10,7 @@ import logging
 from app.services.vector_store import VectorStore
 from app.services.document_processor import DocumentProcessor
 from app.services.llm_engine import LLMEngine
+from app.dependencies import get_vector_store
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -21,10 +22,12 @@ class ExtractFromMemoryRequest(BaseModel):
 
 
 @router.post("/")
-async def extract_from_files(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
+async def extract_from_files(
+    files: List[UploadFile] = File(...),
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Accept files, extract text, run clause extraction via shared LLM."""
     try:
-        vector_store = VectorStore()  # ensure client ready
         processor = DocumentProcessor(vector_store)
 
         rows: List[Dict[str, Any]] = []
@@ -75,10 +78,12 @@ async def extract_from_files(files: List[UploadFile] = File(...)) -> Dict[str, A
 
 
 @router.post("/from-memory")
-async def extract_from_memory(request: ExtractFromMemoryRequest) -> Dict[str, Any]:
+async def extract_from_memory(
+    request: ExtractFromMemoryRequest,
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """Extract key terms from a file already indexed in vector store."""
     try:
-        vector_store = VectorStore()
         
         # Get all chunks for this file
         chunks = vector_store.search_by_file(request.filename)
@@ -118,10 +123,11 @@ async def extract_from_memory(request: ExtractFromMemoryRequest) -> Dict[str, An
 
 
 @router.get("/files-in-memory")
-async def list_files_in_memory() -> Dict[str, Any]:
+async def list_files_in_memory(
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
     """List all files available for extraction (indexed in vector store)."""
     try:
-        vector_store = VectorStore()
         all_docs = vector_store.collection.get(limit=1000, include=['metadatas'])
         
         # Get unique filenames

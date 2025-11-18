@@ -2,6 +2,7 @@
 Uses OpenAI embeddings (text-embedding-3-small) for all vector operations.
 """
 from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
 import logging
 import os
 import chromadb
@@ -276,6 +277,78 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Failed to get collection stats, error: {str(e)}")
             raise
+    
+    def get_inventory(self) -> List[Dict[str, Any]]:
+        """
+        Get inventory of all files in the vector store.
+        
+        This is essentially a metadata search that aggregates chunks by filename,
+        providing a summary of indexed documents.
+        
+        Returns:
+            List of dictionaries with file information:
+            - filename: Name of the file
+            - chunks_or_pages: Number of chunks/pages for this file
+            - last_indexed: ISO timestamp of last modification
+            - size: File size in bytes
+        """
+        try:
+            data = self.collection.get(limit=10000, include=["metadatas"])
+            
+            inv: Dict[str, Dict[str, Any]] = {}
+            for md in (data.get("metadatas") or []):
+                if not md:
+                    continue
+                fname = md.get("file_name")
+                if not fname:
+                    continue
+                    
+                item = inv.get(fname)
+                if not item:
+                    item = {
+                        "filename": fname,
+                        "chunks_or_pages": 0,
+                        "last_indexed": self._safe_iso(md.get("time_modified")),
+                        "size": md.get("file_size") or 0,
+                    }
+                    inv[fname] = item
+                    
+                item["chunks_or_pages"] = int(item.get("chunks_or_pages", 0)) + 1
+                
+                # Update last_indexed to the most recent if available
+                lm = md.get("time_modified")
+                if lm:
+                    cur = item.get("last_indexed")
+                    if not cur:
+                        item["last_indexed"] = self._safe_iso(lm)
+                        
+            result = list(inv.values())
+            logger.info(f"Retrieved inventory: {len(result)} files")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to get inventory, error: {str(e)}")
+            raise
+    
+    @staticmethod
+    def _safe_iso(ts: Optional[str]) -> str:
+        """
+        Safely convert timestamp to ISO format string.
+        
+        Args:
+            ts: Timestamp string (may be None or already ISO-formatted)
+            
+        Returns:
+            ISO-formatted timestamp string, or empty string if None/invalid
+        """
+        if not ts:
+            return ""
+        try:
+            # pass-through if already iso-like
+            datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            return ts
+        except Exception:
+            return str(ts)
     
     def get_all_documents(self, limit: int = 1000) -> List[Dict[str, Any]]:
         """
