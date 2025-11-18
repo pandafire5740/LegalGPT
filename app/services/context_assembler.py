@@ -6,58 +6,114 @@ to support intent-aware prompting for Chat and Search.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
-from datetime import datetime
 import logging
 import os
 import re
+import tiktoken
 
 from app.services.vector_store import VectorStore
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Token encoder for GPT-4o (cl100k_base encoding)
+_token_encoder = None
 
-def _safe_iso(ts: Optional[str]) -> str:
-    if not ts:
-        return ""
+
+def _get_token_encoder():
+    """Get or create the token encoder (singleton)."""
+    global _token_encoder
+    if _token_encoder is None:
+        _token_encoder = tiktoken.get_encoding("cl100k_base")
+    return _token_encoder
+
+
+def _count_tokens(text: str) -> int:
+    """Count tokens in text using GPT-4o encoding."""
+    if not text:
+        return 0
     try:
-        # pass-through if already iso-like
-        datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        return ts
-    except Exception:
-        return str(ts)
-
-
-def _gather_inventory(vs: VectorStore) -> List[Dict[str, Any]]:
-    try:
-        data = vs.collection.get(limit=10000, include=["metadatas"])  # type: ignore[attr-defined]
+        encoder = _get_token_encoder()
+        return len(encoder.encode(text))
     except Exception as e:
-        logger.warning(f"Inventory fetch failed: {e}")
+        logger.warning(f"Token counting failed: {e}, falling back to character estimate")
+        # Fallback: approximate 1 token = 4 characters
+        return len(text) // 4
+
+
+def _truncate_chunk_content(chunk: Dict[str, Any], max_chars: int = 1000) -> Dict[str, Any]:
+    """
+    Truncate chunk content to max_chars while preserving structure.
+    
+    Args:
+        chunk: Chunk dictionary with 'content' key
+        max_chars: Maximum characters to keep
+        
+    Returns:
+        Modified chunk with truncated content
+    """
+    content = chunk.get("content", "")
+    if len(content) <= max_chars:
+        return chunk
+    
+    # Truncate at word boundary if possible
+    truncated = content[:max_chars]
+    last_space = truncated.rfind(" ")
+    if last_space > max_chars * 0.9:  # If we're close to a word boundary
+        truncated = truncated[:last_space]
+    
+    result = chunk.copy()
+    result["content"] = truncated + "..."
+    return result
+
+
+def _prioritize_and_limit_chunks(
+    chunks: List[Dict[str, Any]], 
+    max_chunks: int = 12,
+    max_total_tokens: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """
+    Prioritize chunks by relevance score and limit to max_chunks.
+    
+    Args:
+        chunks: List of chunk dictionaries
+        max_chunks: Maximum number of chunks to return
+        max_total_tokens: Optional maximum total tokens across all chunks
+        
+    Returns:
+        Prioritized and limited list of chunks
+    """
+    if not chunks:
         return []
-    inv: Dict[str, Dict[str, Any]] = {}
-    for md in (data.get("metadatas") or []):
-        if not md:
-            continue
-        fname = md.get("file_name")
-        if not fname:
-            continue
-        item = inv.get(fname)
-        if not item:
-            item = {
-                "filename": fname,
-                "chunks_or_pages": 0,
-                "last_indexed": _safe_iso(md.get("time_modified")),
-                "size": md.get("file_size") or 0,
-            }
-            inv[fname] = item
-        item["chunks_or_pages"] = int(item.get("chunks_or_pages", 0)) + 1
-        # Update last_indexed to the most recent if available
-        lm = md.get("time_modified")
-        if lm:
-            cur = item.get("last_indexed")
-            if not cur:
-                item["last_indexed"] = _safe_iso(lm)
-    return list(inv.values())
+    
+    # Sort by relevance score (final_score > similarity_score > 0)
+    def get_score(chunk: Dict[str, Any]) -> float:
+        return (
+            chunk.get("final_score", 0.0) or
+            chunk.get("similarity_score", 0.0) or
+            0.0
+        )
+    
+    sorted_chunks = sorted(chunks, key=get_score, reverse=True)
+    
+    # Limit by chunk count
+    limited = sorted_chunks[:max_chunks]
+    
+    # Optionally limit by total tokens
+    if max_total_tokens:
+        result = []
+        total_tokens = 0
+        for chunk in limited:
+            content = chunk.get("content", "")
+            chunk_tokens = _count_tokens(content)
+            if total_tokens + chunk_tokens <= max_total_tokens:
+                result.append(chunk)
+                total_tokens += chunk_tokens
+            else:
+                break
+        return result
+    
+    return limited
 
 
 def _index_stats(vs: VectorStore) -> Dict[str, Any]:
@@ -159,13 +215,22 @@ def _detect_file_targets(
     return [name for _, name in top], scores
 
 
-def assemble_context(query: str, n_results: int = 10, require_keyword: bool = True) -> Dict[str, Any]:
+def assemble_context(vs: VectorStore, query: str, n_results: int = 10, require_keyword: bool = True) -> Dict[str, Any]:
     """Build context for a query suitable for inventory or RAG answering.
+
+    Args:
+        vs: VectorStore instance to use for queries
+        query: User query string
+        n_results: Number of results to retrieve
+        require_keyword: Whether to require keyword matches
 
     Returns keys: inventory, index_stats, schemas, retrieved_chunks
     """
-    vs = VectorStore()
-    inventory = _gather_inventory(vs)
+    try:
+        inventory = vs.get_inventory()
+    except Exception as e:
+        logger.warning(f"Inventory fetch failed: {e}")
+        inventory = []
     idx_stats = _index_stats(vs)
     # Schemas: placeholder for future discovery; return [] gracefully
     schemas: List[Dict[str, Any]] = []
@@ -191,6 +256,8 @@ def assemble_context(query: str, n_results: int = 10, require_keyword: bool = Tr
     seen_chunk_ids: set[str] = set()
 
     # Retrieve targeted documents first so they are prioritized in the RAG context
+    # Limit targeted chunks to prevent context window pollution
+    max_targeted_chunks_per_file = 5  # Limit chunks per targeted file
     if targeted_filenames:
         for filename in targeted_filenames:
             try:
@@ -204,33 +271,51 @@ def assemble_context(query: str, n_results: int = 10, require_keyword: bool = Tr
                 continue
 
             targeted_found.add(filename)
-            for chunk in chunks:
+            # Limit chunks per file and truncate content
+            limited_chunks = chunks[:max_targeted_chunks_per_file]
+            for chunk in limited_chunks:
                 chunk_id = str(chunk.get("id")) if chunk.get("id") is not None else None
                 if chunk_id and chunk_id in seen_chunk_ids:
                     continue
                 if chunk_id:
                     seen_chunk_ids.add(chunk_id)
-                targeted_chunks.append(chunk)
+                # Truncate chunk content to prevent context pollution
+                truncated_chunk = _truncate_chunk_content(chunk, max_chars=1000)
+                targeted_chunks.append(truncated_chunk)
 
     retrieved.extend(targeted_chunks)
 
     # General retrieval fallback (hybrid search)
+    # Request more results than needed since we'll prioritize and limit
     try:
-        general_results = vs.hybrid_search(query, n_results=n_results, require_keyword=require_keyword)
+        general_results = vs.hybrid_search(query, n_results=n_results * 2, require_keyword=require_keyword)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Retrieval failed: {e}")
         general_results = []
 
-    max_total = max(n_results, len(targeted_chunks))
+    # Add general results, avoiding duplicates and truncating content
     for chunk in general_results:
         chunk_id = str(chunk.get("id")) if chunk.get("id") is not None else None
         if chunk_id and chunk_id in seen_chunk_ids:
             continue
         if chunk_id:
             seen_chunk_ids.add(chunk_id)
-        retrieved.append(chunk)
-        if len(retrieved) >= max_total:
-            break
+        # Truncate chunk content
+        truncated_chunk = _truncate_chunk_content(chunk, max_chars=1000)
+        retrieved.append(truncated_chunk)
+
+    # Prioritize by relevance score and limit total chunks
+    # Use max 12 chunks total (targeted + general) to stay within context window
+    max_total_chunks = 12
+    retrieved = _prioritize_and_limit_chunks(retrieved, max_chunks=max_total_chunks)
+    
+    # Log context window usage for monitoring
+    total_chars = sum(len(chunk.get("content", "")) for chunk in retrieved)
+    total_tokens = sum(_count_tokens(chunk.get("content", "")) for chunk in retrieved)
+    logger.info(
+        f"Context assembled: {len(retrieved)} chunks, "
+        f"{total_chars} chars, ~{total_tokens} tokens"
+    )
 
     return {
         "inventory": inventory,
