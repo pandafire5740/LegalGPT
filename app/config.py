@@ -63,10 +63,10 @@ class Settings(BaseSettings):
     
     # Search Configuration
     search_similarity_threshold: float = Field(
-        default=0.6,
+        default=0.3,
         ge=0.0,
         le=1.0,
-        description="Minimum similarity score (0.0-1.0) for files to appear in search results. Default: 0.6 (60%)"
+        description="Minimum similarity score (0.0-1.0) for files to appear in search results. Default: 0.3 (30%)"
     )
     
     class Config:
