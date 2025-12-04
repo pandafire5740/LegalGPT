@@ -4,12 +4,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import logging
+import json
 
 from app.services.vector_store import VectorStore
 from app.services.llm_engine import LLMEngine, Streaming
 from app.services.context_assembler import assemble_context
 from app.services.intent import detect_intent
 from app.dependencies import get_vector_store
+from app.prompts.legal_formatting import build_legal_messages
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -271,13 +273,19 @@ async def chat_query(
         
         # Generate answer using LLM
         history = conversation_history or []
-        answer = LLMEngine.chat(
-            result["user_query"],
-            history,
-            result["top_context"],
-            max_words=150,
-            allowed_filenames=result["allowed_names"],
+        
+        # Build messages with formatting rules (chat.py owns formatting choice)
+        messages = build_legal_messages(
+            user_input=result["user_query"],
+            history=history,
+            context=result["top_context"],
             focus_filenames=result["focus_filenames"],
+        )
+        
+        # Pass pre-built messages to LLM engine
+        answer = LLMEngine.chat(
+            messages=messages,
+            allowed_filenames=result["allowed_names"],
         )
         
         # Sanitize citations: if allowed list empty, strip all; else keep only allowed
@@ -299,6 +307,23 @@ async def chat_query(
                 "\n\n⚠️ I couldn't locate the following requested file(s): "
                 f"{missing_list}."
             )
+        
+        # DEBUG: Log final answer before sending to frontend
+        import sys
+        newline_char = '\n'
+        debug_msg = f"""
+{'=' * 80}
+FINAL ANSWER (before JSON serialization):
+{'=' * 80}
+JSON.stringify equivalent: {json.dumps(answer)}
+Length: {len(answer)} chars
+Lines (split by \\n): {len(answer.split(newline_char))}
+First 500 chars: {repr(answer[:500])}
+{'=' * 80}
+"""
+        logger.info(debug_msg)
+        print(debug_msg, file=sys.stderr)  # Print to stderr for visibility
+        sys.stderr.flush()  # Force flush
         
         return {
             "status": "success",
@@ -339,15 +364,51 @@ async def chat_query_stream(
         # Stream LLM response
         history = conversation_history or []
         
+        # Build messages with formatting rules (chat.py owns formatting choice)
+        messages = build_legal_messages(
+            user_input=result["user_query"],
+            history=history,
+            context=result["top_context"],
+            focus_filenames=result["focus_filenames"],
+        )
+        
         def event_stream():
+            # Collect full response for logging
+            full_response = ""
             # Wrap OpenAI stream as SSE data events
-            for token in Streaming.chat_stream(
-                result["user_query"],
-                history,
-                result["top_context"],
-                focus_filenames=result["focus_filenames"],
-            ):
+            for token in Streaming.chat_stream(messages):
+                full_response += token
                 yield f"data: {token}\n\n"
+            
+            # DEBUG: Log raw content from streaming before any processing
+            import sys
+            newline_char = '\n'
+            crlf = '\r\n'
+            has_newline = newline_char in full_response
+            has_crlf = crlf in full_response
+            debug_msg = f"""
+{'=' * 80}
+LLM RAW (from streaming endpoint, before any processing):
+{'=' * 80}
+JSON.stringify equivalent: {json.dumps(full_response)}
+Length: {len(full_response)} chars
+Lines (split by \\n): {len(full_response.split(newline_char))}
+First 500 chars: {repr(full_response[:500])}
+Contains \\n: {has_newline}
+Contains \\r\\n: {has_crlf}
+{'=' * 80}
+"""
+            logger.info(debug_msg)
+            print(debug_msg, file=sys.stderr)  # Print to stderr for visibility
+            sys.stderr.flush()  # Force flush
+            
+            # Log the raw LLM output after streaming completes (legacy log)
+            logger.info("=" * 80)
+            logger.info("RAW LLM OUTPUT (streaming, before processing):")
+            logger.info("=" * 80)
+            logger.info(full_response)
+            logger.info("=" * 80)
+            logger.info(f"Raw output length: {len(full_response)} characters")
             
             # Add missing files warning if applicable
             if result["missing_filenames"] and result["focus_filenames"]:

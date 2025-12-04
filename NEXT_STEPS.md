@@ -11,3 +11,7 @@
 * ~~Let's change the detect_intent function to be a multi-round tool-calling flow instead~~ ✅
 * ~~Let's DRY up chat_query_stream and chat_query~~ ✅
 * ~~Let's remove ai_service.py and remaining usages~~ ✅
+* ~~Let's implement an overall sentiment score in the Extract tab that indicates whether this contract is good to sign as is~~ ✅
+* ~~Let's implement some better formatting and newlining for the LLM's responses in the Chat feature. Current results are in one-block, paragraph form and difficult to read~~ ✅
+* ~~Change the "Quick Action" tab on the left menu panel to "Document Management", with the option to upload local documents (existing) and manage any local files (new)~~ ✅
+* ~~Center the chat, search, and extract tab selection menu~~ ✅

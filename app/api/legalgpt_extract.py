@@ -107,13 +107,27 @@ async def extract_from_memory(
             "governing_law", "confidentiality", "liability_cap", "indemnification"
         ])
         
-        return {
+        # Analyze contract sentiment
+        sentiment = None
+        try:
+            sentiment = LLMEngine.analyze_contract_sentiment(full_text, terms)
+            logger.info(f"Sentiment analysis completed: score={sentiment.get('score')}, label={sentiment.get('label')}")
+        except Exception as e:
+            logger.warning(f"Sentiment analysis failed: {e}")
+            # Continue without sentiment if analysis fails
+        
+        response = {
             "status": "success",
             "filename": request.filename,
             "terms": terms,
             "text_length": len(full_text),
             "chunks_count": len(chunks)
         }
+        
+        if sentiment:
+            response["sentiment"] = sentiment
+        
+        return response
         
     except HTTPException:
         raise
@@ -149,14 +163,29 @@ async def list_files_in_memory(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ExportRequest(BaseModel):
+    """Request body for CSV export."""
+    rows: List[Dict[str, Any]]
+
+
 @router.post("/export")
-async def export_rows(rows: List[Dict[str, Any]]) -> StreamingResponse:
+async def export_rows(request: ExportRequest) -> StreamingResponse:
     """Return CSV file from provided rows."""
     try:
+        rows = request.rows
+        if not rows:
+            raise HTTPException(status_code=400, detail="No rows to export")
+        
+        # Determine fieldnames dynamically from all rows
+        all_fieldnames = set()
+        for row in rows:
+            all_fieldnames.update(row.keys())
+        
+        # Always include filename first, then sort the rest
+        fieldnames = ["filename"] + sorted([f for f in all_fieldnames if f != "filename"])
+        
         buffer = io.StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=[
-            "filename", "counterparty", "effective_date", "expiration_or_renewal", "payment_terms", "status"
-        ])
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction='ignore')
         writer.writeheader()
         for r in rows:
             writer.writerow(r)
@@ -166,8 +195,28 @@ async def export_rows(rows: List[Dict[str, Any]]) -> StreamingResponse:
             media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=extraction_results.csv"},
         )
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         logger.error(f"Export failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/prompts/")
+async def get_prompt_templates() -> Dict[str, Any]:
+    """Get prompt templates (returns empty array if no templates configured)."""
+    try:
+        # Return empty templates array for now
+        # TODO: Load from prompts/prompts.json if needed
+        return {
+            "status": "success",
+            "templates": []
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Failed to get prompt templates: {e}")
+        return {
+            "status": "success",
+            "templates": []
+        }
 
 

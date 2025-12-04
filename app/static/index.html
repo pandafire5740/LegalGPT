@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LegalGPT</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚖️</text></svg>">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="/static/styles.css?v=1760559005" rel="stylesheet">
 </head>
@@ -12,7 +13,7 @@
         <!-- Header -->
         <header class="app-header">
             <div class="header-content">
-                <div class="logo">
+                <div class="logo" onclick="reloadPage()" title="Click to reload page">
                     <i class="fas fa-scale-balanced"></i>
                     <h1>LegalGPT</h1>
                 </div>
@@ -33,14 +34,12 @@
                     </button>
                 </div>
                 
-                <!-- Theme Control -->
-                <div class="header-controls">
-                    <div class="theme-toggle" title="Toggle light/dark" onclick="toggleTheme()">
-                        <div class="theme-track">
-                            <div class="theme-thumb">
-                                <i class="fas fa-sun"></i>
-                                <i class="fas fa-moon"></i>
-                            </div>
+                <!-- Theme Control - Centered between mode-toggle and header-stats -->
+                <div class="theme-toggle" title="Toggle light/dark" onclick="toggleTheme()">
+                    <div class="theme-track">
+                        <div class="theme-thumb">
+                            <i class="fas fa-sun"></i>
+                            <i class="fas fa-moon"></i>
                         </div>
                     </div>
                 </div>
@@ -55,10 +54,6 @@
                         <span class="stat-value" id="chunk-count">-</span>
                         <span class="stat-label">Sections</span>
                     </div>
-                    <button class="clear-btn" onclick="resetIndex()" title="Clear all files and reset counters">
-                        <i class="fas fa-rotate"></i>
-                        Clear files
-                    </button>
                 </div>
             </div>
         </header>
@@ -71,19 +66,14 @@
                 <!-- Prompt templates removed in minimal build -->
                 
                 <div class="sidebar-section">
-                    <h3><i class="fas fa-lightbulb"></i> Quick Actions</h3>
-                    <button class="action-btn" onclick="showTermsExtraction()">
-                        <i class="fas fa-file-contract"></i>
-                        Extract Terms & Conditions
-                    </button>
-                    <button class="action-btn" onclick="showDocumentSearch()">
-                        <i class="fas fa-search"></i>
-                        Find Document Location
-                    </button>
-                    <!-- Sync disabled (SharePoint removed) -->
+                    <h3><i class="fas fa-folder-open"></i> Document Management</h3>
                     <button class="action-btn" onclick="showDocumentUpload()">
                         <i class="fas fa-upload"></i>
                         Upload Local Documents
+                    </button>
+                    <button class="action-btn" onclick="showManageFiles()">
+                        <i class="fas fa-cog"></i>
+                        Manage Local Files
                     </button>
                 </div>
 
@@ -100,7 +90,7 @@
                             "Find documents mentioning confidentiality"
                         </div>
                         <div class="query-example" onclick="sendExampleQuery(this)">
-                            "Summarize the contract with Company ABC"
+                            "Summarize the contract with Playlist DataTrust DPA"
                         </div>
                     </div>
                 </div>
@@ -143,12 +133,18 @@
                         
                         
                     <div class="input-wrapper">
-                        <textarea 
-                            id="chat-input" 
-                            placeholder="Ask about your legal documents..."
-                            rows="1"
-                            onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey){event.preventDefault();sendMessage();return false;}"
-                        ></textarea>
+                        <div class="autocomplete-container">
+                            <textarea 
+                                id="chat-input" 
+                                placeholder="Ask about your legal documents..."
+                                rows="1"
+                                onkeydown="handleChatInputKeyDown(event)"
+                                oninput="handleChatInputChange(event)"
+                                onfocus="handleChatInputFocus(event)"
+                                onblur="handleChatInputBlur(event)"
+                            ></textarea>
+                            <div class="autocomplete-dropdown" id="autocomplete-dropdown"></div>
+                        </div>
                         <button id="send-button" onclick="sendMessage()">
                             <i class="fas fa-paper-plane"></i>
                         </button>
@@ -164,26 +160,20 @@
                     <div class="search-container">
                         <div class="search-header">
                             <h2><i class="fas fa-search"></i> Document Search</h2>
-                            <p>Search across SharePoint and Slack documents using hybrid search</p>
-                        </div>
-                        
-                        <div class="search-input-container">
-                            <div class="input-wrapper">
-                                <input 
-                                    type="text" 
-                                    id="search-input" 
-                                    placeholder="Enter your search query..."
-                                    onkeydown="handleSearchKeyDown(event)"
-                                >
-                                <button id="search-button" onclick="performSearch()">
-                                    <i class="fas fa-search"></i>
-                                </button>
-                            </div>
-                            <div class="search-options">
-                                <label>
-                                    <input type="number" id="search-top-k" value="8" min="1" max="20">
-                                    Results
-                                </label>
+                            <p>Search across documents using AI-powered search</p>
+                            
+                            <div class="search-input-container">
+                                <div class="input-wrapper">
+                                    <input 
+                                        type="text" 
+                                        id="search-input" 
+                                        placeholder="Enter your search query..."
+                                        onkeydown="handleSearchKeyDown(event)"
+                                    >
+                                    <button id="search-button" onclick="performSearch()">
+                                        <i class="fas fa-search"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         
@@ -289,6 +279,29 @@
             </div>
         </div>
 
+        <!-- Modal for Manage Files -->
+        <div class="modal" id="manage-files-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-folder-open"></i> Manage Local Files</h3>
+                    <button class="modal-close" onclick="closeModal('manage-files-modal')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="files-list-container">
+                        <div class="loading-message">Loading files...</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="clear-btn" onclick="resetIndex()" title="Clear all files and reset counters">
+                        <i class="fas fa-rotate"></i>
+                        Clear All Files
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Modal for Document Upload -->
         <div class="modal" id="upload-modal">
             <div class="modal-content">
@@ -349,23 +362,6 @@
     </div>
 
     <script>
-        // Simple test to see if JavaScript is working
-        console.log('JavaScript is loading...');
-        
-        // Test if we can access the modal directly
-        function testModal() {
-            console.log('testModal called');
-            const modal = document.getElementById('upload-modal');
-            console.log('Modal found:', !!modal);
-            if (modal) {
-                modal.classList.add('active');
-                console.log('Modal activated');
-            }
-        }
-        
-        // Make testModal available globally
-        window.testModal = testModal;
-        
         // Fallback functions in case app.js fails to load
         function showDocumentUpload() {
             console.log('Fallback showDocumentUpload called');
@@ -496,6 +492,12 @@
                 modal.classList.remove('active');
             }
         }
+
+        function showManageFiles() {
+            if (typeof app !== 'undefined' && app) {
+                app.showManageFiles();
+            }
+        }
         
         async function updateDocumentCounter() {
             try {
@@ -601,6 +603,118 @@
         // Expose for other scripts if needed
         window.toggleTheme = toggleTheme;
         window.resetIndex = resetIndex;
+        
+        // Logo reload function with animation
+        function reloadPage() {
+            const logo = document.querySelector('.logo');
+            if (logo) {
+                // Remove any existing animation class first
+                logo.classList.remove('animating');
+                // Force reflow to ensure class removal is processed
+                void logo.offsetWidth;
+                // Add animating class to trigger rotation
+                logo.classList.add('animating');
+                // Wait for full animation (800ms) before reloading
+                setTimeout(() => {
+                    window.location.reload();
+                }, 850); // Slightly longer than animation duration
+            } else {
+                window.location.reload();
+            }
+        }
+        window.reloadPage = reloadPage;
+
+        // Autocomplete input handlers
+        function handleChatInputKeyDown(event) {
+            const input = event.target;
+            
+            // Handle autocomplete navigation
+            if (app.autocompleteVisible) {
+                if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    app.navigateAutocomplete('down');
+                    return false;
+                } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    app.navigateAutocomplete('up');
+                    return false;
+                } else if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+                    if (app.selectedSuggestionIndex >= 0) {
+                        event.preventDefault();
+                        app.selectAutocompleteSuggestion(app.selectedSuggestionIndex);
+                        return false;
+                    }
+                } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    app.hideAutocomplete();
+                    return false;
+                }
+            }
+            
+            // Original Enter key handler for sending messages
+            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+                if (!app.autocompleteVisible || app.selectedSuggestionIndex < 0) {
+                    event.preventDefault();
+                    sendMessage();
+                    return false;
+                }
+            }
+        }
+
+        function handleChatInputChange(event) {
+            const input = event.target;
+            const query = input.value; // Don't trim - we want to match fragments in the middle
+            
+            // Auto-resize textarea
+            if (typeof app !== 'undefined' && app) {
+                app.autoResizeTextarea(event);
+            }
+            
+            // Show autocomplete if query is long enough (3+ characters, after trimming for length check)
+            const trimmedQuery = query.trim();
+            if (trimmedQuery.length >= 3) {
+                const suggestions = app.getAutocompleteSuggestions(query); // Pass full query with spaces
+                console.log('handleChatInputChange - query:', query, 'suggestions:', suggestions.length);
+                if (suggestions.length > 0) {
+                    app.showAutocomplete(suggestions, trimmedQuery); // Use trimmed for highlighting
+                } else {
+                    app.hideAutocomplete();
+                }
+            } else {
+                app.hideAutocomplete();
+            }
+        }
+
+        function handleChatInputFocus(event) {
+            const input = event.target;
+            const query = input.value.trim();
+            
+            // Show autocomplete if there's text and suggestions (3+ characters)
+            if (query.length >= 3) {
+                const suggestions = app.getAutocompleteSuggestions(query);
+                if (suggestions.length > 0) {
+                    app.showAutocomplete(suggestions, query);
+                }
+            }
+        }
+
+        function handleChatInputBlur(event) {
+            // Delay hiding to allow clicks on suggestions
+            setTimeout(() => {
+                const activeElement = document.activeElement;
+                if (activeElement !== event.target && 
+                    !activeElement?.closest('.autocomplete-dropdown') &&
+                    activeElement?.id !== 'chat-input') {
+                    app.hideAutocomplete();
+                }
+            }, 200);
+        }
+
+        // Expose handlers globally
+        window.handleChatInputKeyDown = handleChatInputKeyDown;
+        window.handleChatInputChange = handleChatInputChange;
+        window.handleChatInputFocus = handleChatInputFocus;
+        window.handleChatInputBlur = handleChatInputBlur;
 
         // LegalGPT Mode Switching
         function switchMode(mode) {
@@ -703,41 +817,171 @@
             }
         }
 
+        function formatFieldName(fieldName) {
+            if (!fieldName || fieldName === 'N/A') return 'N/A';
+            
+            // Convert snake_case to Title Case
+            let formatted = fieldName
+                .split('_')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ');
+            
+            // Words that should be pluralized (easily extensible list)
+            const pluralizableWords = new Set([
+                'clause', 'term', 'condition', 'provision', 'obligation', 
+                'requirement', 'date', 'period', 'fee', 'charge', 'penalty',
+                'warranty', 'guarantee', 'indemnity', 'liability', 'right',
+                'duty', 'responsibility', 'restriction', 'limitation', 'notice',
+                'document', 'agreement', 'contract', 'section', 'article'
+            ]);
+            
+            // Handle special cases first (exact matches that override pluralization)
+            const specialCases = {
+                'effective date': 'Effective date',
+                'expiration date': 'Expiration date',
+                'renewal date': 'Renewal date',
+                'termination date': 'Termination date',
+                'payment terms': 'Payment terms',
+                'governing law': 'Governing law',
+                'jurisdiction': 'Jurisdiction',
+                'counterparty': 'Counterparty',
+                'party': 'Party',
+                'parties': 'Parties',
+            };
+            
+            const lowerFormatted = formatted.toLowerCase();
+            if (specialCases[lowerFormatted]) {
+                return specialCases[lowerFormatted];
+            }
+            
+            // Check if last word should be pluralized
+            const words = formatted.split(' ');
+            if (words.length > 0) {
+                const lastWord = words[words.length - 1].toLowerCase();
+                // Only pluralize if word is in our list and not already pluralized
+                if (pluralizableWords.has(lastWord) && !lastWord.endsWith('(s)')) {
+                    words[words.length - 1] = words[words.length - 1] + '(s)';
+                    formatted = words.join(' ');
+                }
+            }
+            
+            return formatted;
+        }
+
         function displayExtractionResultsFromMemory(data) {
             const resultsContainer = document.getElementById('extract-results');
             const terms = data.terms || [];
+            const sentiment = data.sentiment || null;
+            
+            // Debug logging
+            console.log('displayExtractionResultsFromMemory - terms count:', terms.length);
+            console.log('displayExtractionResultsFromMemory - terms data:', terms);
+            
+            if (terms.length === 0) {
+                console.warn('WARNING: No terms in data.terms array - table will be empty!');
+            }
             
             let html = `
                 <div class="extraction-results-header">
                     <h3><i class="fas fa-file-contract"></i> Extracted Terms from ${data.filename}</h3>
                     <p>${terms.length} key terms identified</p>
                 </div>
+            `;
+            
+            // Add sentiment score card if available
+            if (sentiment) {
+                const score = sentiment.score || 50;
+                const label = sentiment.label || 'Needs Review';
+                const explanation = sentiment.explanation || '';
+                const concerns = sentiment.concerns || [];
+                const positives = sentiment.positives || [];
+                
+                // Determine color class based on score
+                let scoreClass = 'sentiment-yellow';
+                if (score >= 70) {
+                    scoreClass = 'sentiment-green';
+                } else if (score < 40) {
+                    scoreClass = 'sentiment-red';
+                }
+                
+                html += `
+                    <div class="sentiment-score-card ${scoreClass}">
+                        <div class="sentiment-score-header">
+                            <div class="sentiment-score-main">
+                                <div class="sentiment-score-value">${score}</div>
+                                <div class="sentiment-score-label">${label}</div>
+                            </div>
+                            <div class="sentiment-score-icon">
+                                ${score >= 70 ? '<i class="fas fa-check-circle"></i>' : 
+                                  score >= 40 ? '<i class="fas fa-exclamation-triangle"></i>' : 
+                                  '<i class="fas fa-times-circle"></i>'}
+                            </div>
+                        </div>
+                        <div class="sentiment-score-explanation">
+                            ${explanation}
+                        </div>
+                        ${concerns.length > 0 ? `
+                            <div class="sentiment-concerns">
+                                <strong>Key Concerns:</strong>
+                                <ul>
+                                    ${concerns.map(c => `<li>${c}</li>`).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                        ${positives.length > 0 ? `
+                            <div class="sentiment-positives">
+                                <strong>Positive Aspects:</strong>
+                                <ul>
+                                    ${positives.map(p => `<li>${p}</li>`).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            
+            html += `
                 <div class="extraction-table">
                     <table>
                         <thead>
                             <tr>
                                 <th>Field</th>
                                 <th>Value</th>
-                                <th>Confidence</th>
                                 <th>Snippet</th>
                                 <th>Location</th>
+                                <th>Confidence</th>
                             </tr>
                         </thead>
                         <tbody>
             `;
             
-            terms.forEach(term => {
-                const confidence = typeof term.confidence === 'number' ? (term.confidence * 100).toFixed(0) + '%' : 'N/A';
+            if (terms.length === 0) {
                 html += `
                     <tr>
-                        <td><strong>${term.field || 'N/A'}</strong></td>
-                        <td>${term.value || 'Not found'}</td>
-                        <td>${confidence}</td>
-                        <td style="font-size: 0.85rem; font-style: italic;">${term.snippet || 'N/A'}</td>
-                        <td>${term.location || 'N/A'}</td>
+                        <td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                            <i class="fas fa-info-circle"></i> No terms extracted. Check console logs for details.
+                        </td>
                     </tr>
                 `;
-            });
+            } else {
+                terms.forEach(term => {
+                    if (!term || typeof term !== 'object') {
+                        console.warn('Invalid term object:', term);
+                        return;
+                    }
+                    const confidence = typeof term.confidence === 'number' ? (term.confidence * 100).toFixed(0) + '%' : 'N/A';
+                    const formattedField = formatFieldName(term.field || 'Unknown');
+                    html += `
+                        <tr>
+                            <td><strong>${formattedField}</strong></td>
+                            <td>${term.value || 'Not found'}</td>
+                            <td style="font-size: 0.85rem; font-style: italic;">${term.snippet || 'N/A'}</td>
+                            <td>${term.location || 'N/A'}</td>
+                            <td>${confidence}</td>
+                        </tr>
+                    `;
+                });
+            }
             
             html += `
                         </tbody>
@@ -747,22 +991,39 @@
             
             resultsContainer.innerHTML = html;
             
+            // Store results for CSV export (convert terms format to exportable format)
+            window.extractionResults = {
+                filename: data.filename,
+                terms: terms,
+                sentiment: sentiment
+            };
+            
             // Show export button
             document.getElementById('extract-actions').style.display = 'flex';
         }
 
         // New Search Functions (using grouped results + AI summaries)
+        // Helper function to escape HTML
+        function escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         async function performSearch() {
             const query = document.getElementById('search-input').value.trim();
-            const topK = parseInt(document.getElementById('search-top-k').value) || 6;
+            const resultsContainer = document.getElementById('search-results');
             
             if (!query) {
                 alert('Please enter a search query');
                 return;
             }
             
-            const resultsContainer = document.getElementById('search-results');
-            resultsContainer.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Searching documents...</div>';
+            // Show loading state
+            resultsContainer.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Searching clauses and documents...</div>';
             
             try {
                 const response = await fetch('/api/search/', {
@@ -771,114 +1032,196 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ 
-                        query, 
-                        top_k_groups: topK,
-                        max_snippets_per_group: 3
+                        query,
+                        top_k_groups: 6,
+                        max_snippets_per_group: 3,
+                        enable_clause_summaries: false
                     })
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`Search failed: ${response.statusText}`);
+                    // Try to get error details from response
+                    let errorMessage = `Search failed: ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.detail || errorMessage;
+                    } catch (e) {
+                        // If JSON parsing fails, use status text
+                    }
+                    throw new Error(errorMessage);
                 }
                 
                 const data = await response.json();
-                displaySearchResults(data, query);
+                console.log('Search response:', data); // Debug log
+                renderSearchResults(data);
                 
             } catch (error) {
                 console.error('Search error:', error);
-                resultsContainer.innerHTML = `
-                    <div class="error">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <p>Search failed. Please try again.</p>
-                        <p class="error-details">${error.message}</p>
-                    </div>
-                `;
+                const errorMessage = error.message || 'Sorry, something went wrong while searching. Please try again.';
+                renderSearchError(errorMessage);
             }
         }
 
-        function displaySearchResults(data, query) {
-            const resultsContainer = document.getElementById('search-results');
-            const groups = data.groups || [];
-            const summary = data.summary || '';
-            const totalGroups = data.total_groups || 0;
+        function renderSearchResults(data) {
+            const container = document.getElementById('search-results');
             
-            let html = `
-                <div class="search-results-header">
-                    <h3><i class="fas fa-search"></i> Found ${totalGroups} document${totalGroups !== 1 ? 's' : ''} for "${query}"</h3>
-                </div>
-            `;
+            if (!data) {
+                renderSearchError('Search failed. Please try again.');
+                return;
+            }
             
-            // Show AI summary if available
-            if (summary) {
+            const { overall_summary, total_matches, files } = data;
+            
+            if (!files || files.length === 0) {
+                container.innerHTML = `
+                    <div class="no-results">
+                        <i class="fas fa-file-search"></i>
+                        <p>No matching clauses or documents were found for this query.</p>
+                        <p class="hint">Try different keywords or check your spelling</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            
+            // Overall summary (if any)
+            if (overall_summary && overall_summary.trim()) {
                 html += `
                     <div class="search-summary">
-                        <div class="summary-icon"><i class="fas fa-magic"></i></div>
-                        <div class="summary-text">${summary}</div>
+                        <div class="summary-icon"><i class="fas fa-lightbulb"></i></div>
+                        <div class="summary-text">${escapeHtml(overall_summary)}</div>
                     </div>
                 `;
             }
             
-            // Display each file group
-            groups.forEach((group, index) => {
+            // File groups
+            files.forEach((file) => {
+                const safeFileName = escapeHtml(file.file_name || 'Unknown document');
+                const docScore = typeof file.doc_score === 'number' ? file.doc_score.toFixed(2) : '–';
+                
+                // Pick a quality class based on doc_score
+                let qualityClass = 'quality-fair';
+                if (file.doc_score >= 0.75) qualityClass = 'quality-excellent';
+                else if (file.doc_score >= 0.5) qualityClass = 'quality-good';
+                
                 html += `
                     <div class="search-file-group">
                         <div class="group-header">
                             <div class="group-filename">
-                                <i class="fas fa-file-pdf"></i>
-                                <strong>${group.filename}</strong>
+                                <i class="fas fa-file-contract"></i>
+                                <div>
+                                    <div><strong>${safeFileName}</strong></div>
+                                    ${file.file_path ? `<div class="file-path-text">${escapeHtml(file.file_path)}</div>` : ''}
+                                </div>
                             </div>
-                            <div class="group-score">
-                                Score: ${(group.doc_score * 100).toFixed(0)}%
+                            <div class="group-score search-quality ${qualityClass}">
+                                Relevance: ${(parseFloat(docScore) * 100).toFixed(0)}% ${file.doc_score >= 0.75 ? '(High)' : file.doc_score >= 0.5 ? '(Good)' : '(Fair)'}
                             </div>
                         </div>
                 `;
                 
-                // Display keyword summary if available
-                if (group.keyword_summary) {
-                    html += `
-                        <div class="keyword-summary">
-                            <div class="keyword-summary-icon"><i class="fas fa-info-circle"></i></div>
-                            <div class="keyword-summary-text">${group.keyword_summary}</div>
-                        </div>
-                    `;
-                }
-                
+                // Always show keyword_summary (now guaranteed to be present)
                 html += `
-                        <div class="group-snippets">
+                    <div class="keyword-summary">
+                        <div class="keyword-summary-icon"><i class="fas fa-info-circle"></i></div>
+                        <div class="keyword-summary-text">${escapeHtml(file.keyword_summary || '')}</div>
+                    </div>
                 `;
                 
-                // Display each snippet in the group
-                group.snippets.forEach((snippet, snippetIndex) => {
-                    // Convert ** markers to <strong> tags for bold text
-                    const snippetText = snippet.text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-                    
-                    html += `
-                        <div class="snippet-item">
-                            <div class="snippet-text">${snippetText}</div>
-                            <div class="snippet-meta">
-                                Position: ${snippet.position + 1} | Relevance: ${(snippet.score * 100).toFixed(0)}%
-                            </div>
-                        </div>
-                    `;
+                html += `<div class="group-snippets">`;
+                
+                // Group clauses by type
+                const clausesByType = {};
+                (file.clauses || []).forEach((clause) => {
+                    const clauseType = clause.clause_type || 'Other';
+                    if (!clausesByType[clauseType]) {
+                        clausesByType[clauseType] = [];
+                    }
+                    clausesByType[clauseType].push(clause);
                 });
                 
-                html += `
-                        </div>
-                    </div>
-                `;
+                // Define clause type order
+                const clauseTypeOrder = [
+                    'Intro / Recitals',
+                    'Term & Renewal',
+                    'Termination',
+                    'Payment',
+                    'Confidentiality',
+                    'Liability',
+                    'Governing Law',
+                    'Other'
+                ];
+                
+                // Render clauses grouped by type
+                clauseTypeOrder.forEach((clauseType) => {
+                    const clausesOfType = clausesByType[clauseType];
+                    if (!clausesOfType || clausesOfType.length === 0) return;
+                    
+                    // Add clause type header if there are multiple types
+                    if (Object.keys(clausesByType).length > 1) {
+                        html += `<div class="clause-type-header"><h4>${escapeHtml(clauseType)}</h4></div>`;
+                    }
+                    
+                    clausesOfType.forEach((clause) => {
+                        const heading = clause.section_title && clause.section_title.trim() ? clause.section_title.trim() : null;
+                        const matchBadge = clause.match_type === 'semantic+keyword'
+                            ? '<span class="badge badge-keyword">Keyword + Semantic</span>'
+                            : '<span class="badge badge-semantic">Semantic match</span>';
+                        // Use display_clause_score if available, otherwise similarity_score
+                        const clauseScore = clause.display_clause_score !== undefined ? clause.display_clause_score : clause.similarity_score;
+                        const scorePercent = typeof clauseScore === 'number' ? (clauseScore * 100).toFixed(0) : '–';
+                        const summaryHtml = clause.clause_summary
+                            ? `<div class="snippet-meta-line"><strong>Summary:</strong> ${escapeHtml(clause.clause_summary)}</div>`
+                            : '';
+                        
+                        // Render clause_text as markdown, then maybe truncate
+                        let snippetHtml = '';
+                        if (typeof marked !== 'undefined' && marked.parse) {
+                            snippetHtml = marked.parse(clause.clause_text || '');
+                        } else {
+                            snippetHtml = `<p>${escapeHtml(clause.clause_text || '')}</p>`;
+                        }
+                        
+                        html += `
+                            <div class="snippet-item">
+                                <div class="snippet-header">
+                                    <div class="snippet-title">
+                                        ${heading ? `<strong>${escapeHtml(heading)}</strong>` : '<strong>Clause</strong>'}
+                                    </div>
+                                    <div class="snippet-badges">
+                                        ${matchBadge}
+                                        <span class="badge badge-score subtle-score">Top clause match: ${scorePercent}%</span>
+                                    </div>
+                                </div>
+                                <div class="snippet-text">
+                                    ${snippetHtml}
+                                </div>
+                                ${summaryHtml}
+                                <div class="snippet-meta">
+                                    ${clause.file_name ? `<span><i class="fas fa-file-alt"></i> ${escapeHtml(clause.file_name)}</span>` : ''}
+                                    ${typeof clause.chunk_index === 'number' ? `<span><i class="fas fa-hashtag"></i> Clause #${clause.chunk_index}</span>` : ''}
+                                    ${file.file_name ? `<span><i class="fas fa-external-link-alt"></i> <a href="/api/documents/${encodeURIComponent(file.file_name)}/download" target="_blank" rel="noopener noreferrer">Open document</a></span>` : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                });
+                
+                html += `</div></div>`; // close .group-snippets and .search-file-group
             });
             
-            if (groups.length === 0) {
-                html += `
-                    <div class="no-results">
-                        <i class="fas fa-search"></i>
-                        <p>No results found for "${query}"</p>
-                        <p class="hint">Try different keywords or check your spelling</p>
-                    </div>
-                `;
-            }
-            
-            resultsContainer.innerHTML = html;
+            container.innerHTML = html;
+        }
+        
+        function renderSearchError(message) {
+            const container = document.getElementById('search-results');
+            container.innerHTML = `
+                <div class="error">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>${escapeHtml(message)}</p>
+                </div>
+            `;
         }
 
         function handleSearchKeyDown(event) {
@@ -988,12 +1331,40 @@
             }
             
             try {
+                // Handle both formats: old format (rows array) and new format (terms object)
+                let rowsToExport = [];
+                
+                if (Array.isArray(window.extractionResults)) {
+                    // Old format: array of rows
+                    rowsToExport = window.extractionResults;
+                } else if (window.extractionResults.terms) {
+                    // New format: terms array with filename
+                    // Convert terms to row format for CSV export
+                    const filename = window.extractionResults.filename || 'Unknown';
+                    const terms = window.extractionResults.terms || [];
+                    
+                    // Create a single row with all terms as columns
+                    const row = { filename: filename };
+                    terms.forEach(term => {
+                        const field = term.field || '';
+                        const value = term.value || '';
+                        // Convert field name to column name
+                        if (field) {
+                            row[field] = value;
+                        }
+                    });
+                    rowsToExport = [row];
+                } else {
+                    alert('No extraction results to export');
+                    return;
+                }
+                
                 const response = await fetch('/api/legalgpt/extract/export', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ rows: window.extractionResults })
+                    body: JSON.stringify({ rows: rowsToExport })
                 });
                 
                 if (response.ok) {
@@ -1001,7 +1372,9 @@
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `contract_extraction_${new Date().toISOString().slice(0, 10)}.csv`;
+                    const filename = window.extractionResults.filename || (window.extractionResults[0]?.filename) || 'contract_extraction';
+                    const safeFilename = filename.replace(/[^a-z0-9]/gi, '_');
+                    a.download = `${safeFilename}_${new Date().toISOString().slice(0, 10)}.csv`;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
@@ -1019,28 +1392,53 @@
         async function loadPromptTemplates() {
             try {
                 const response = await fetch('/api/legalgpt/prompts/');
+                if (!response.ok) {
+                    console.warn('Prompt templates endpoint not available');
+                    return;
+                }
                 const data = await response.json();
                 
-                displayPromptTemplates(data.templates);
+                // Handle different response structures
+                const templates = data.templates || data || [];
+                if (Array.isArray(templates)) {
+                    displayPromptTemplates(templates);
+                } else {
+                    console.warn('Invalid templates data format:', data);
+                }
             } catch (error) {
                 console.error('Failed to load prompt templates:', error);
+                // Silently fail - prompt templates are optional
             }
         }
 
         function displayPromptTemplates(templates) {
+            if (!templates || !Array.isArray(templates)) {
+                console.warn('displayPromptTemplates called with invalid data:', templates);
+                return;
+            }
+            
             const sidebarContainer = document.getElementById('prompt-templates');
             const modalContainer = document.getElementById('prompt-list');
             
+            if (!modalContainer) {
+                console.warn('Prompt template modal container not found');
+                return;
+            }
+            
+            // Sidebar container is optional (may be removed in minimal build)
             let sidebarHtml = '';
             let modalHtml = '';
             
             templates.forEach(template => {
-                sidebarHtml += `
-                    <div class="prompt-template-item" onclick="usePromptTemplate('${template.id}')">
-                        <div class="prompt-label">${template.label}</div>
-                        <div class="prompt-preview">${template.template.substring(0, 50)}...</div>
-                    </div>
-                `;
+                // Only generate sidebar HTML if container exists
+                if (sidebarContainer) {
+                    sidebarHtml += `
+                        <div class="prompt-template-item" onclick="usePromptTemplate('${template.id}')">
+                            <div class="prompt-label">${template.label}</div>
+                            <div class="prompt-preview">${template.template.substring(0, 50)}...</div>
+                        </div>
+                    `;
+                }
                 
                 modalHtml += `
                     <div class="prompt-editor-item">
@@ -1055,7 +1453,10 @@
                 `;
             });
             
-            sidebarContainer.innerHTML = sidebarHtml;
+            // Only update sidebar if container exists
+            if (sidebarContainer) {
+                sidebarContainer.innerHTML = sidebarHtml;
+            }
             modalContainer.innerHTML = modalHtml;
         }
 
@@ -1145,6 +1546,9 @@
             }
         }
     </script>
-    <script src="/static/app.js?v=1760559002"></script>
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+    <script src="/static/app.js?v=1764782614"></script>
 </body>
 </html>
+

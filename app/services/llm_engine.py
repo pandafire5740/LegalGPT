@@ -1,12 +1,12 @@
 """
-LegalGPT LLM Engine - OpenAI GPT-4o Integration
+LegalGPT LLM Engine - OpenAI GPT-5 Integration
 
 Provides three core AI capabilities:
 1. Chat: Conversational Q&A with document context and streaming support
 2. Summarize: Generate concise summaries from search results or documents
 3. Extract Terms: Intelligent extraction of key contract terms
 
-All functions use OpenAI GPT-4o with response caching and output sanitization.
+All functions use OpenAI GPT-5 with response caching and output sanitization.
 Streaming support available for real-time token delivery.
 """
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _get_openai_client() -> OpenAI:
     global _openai_client
     if _openai_client is None:
         _openai_client = OpenAI(api_key=settings.openai_api_key)
-        logger.info("Initialized OpenAI client for GPT-4o")
+        logger.info("Initialized OpenAI client for GPT-5")
     return _openai_client
 
 
@@ -61,37 +61,115 @@ def _hash_prompt(*parts: str) -> str:
     return m.hexdigest()
 
 
-def _openai_complete(messages: List[Dict[str, str]], max_tokens: int = 300) -> str:
+def _openai_complete(messages: List[Dict[str, str]], max_tokens: int = 500) -> str:
     key = _hash_prompt(json.dumps(messages, ensure_ascii=False), str(max_tokens))
     cached = _cache.get(key)
     if cached is not None:
         logger.debug(f"Cache hit for prompt hash: {key[:16]}...")
         return cached
     client = _get_openai_client()
-    logger.info(f"Calling OpenAI GPT-4o, max_tokens={max_tokens}")
-    resp = client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        temperature=0.3,
-        top_p=0.9,
-        max_tokens=max_tokens,
-    )
-    text = (resp.choices[0].message.content or "").strip()
-    logger.info(f"OpenAI response length: {len(text)} chars")
-    logger.debug(f"OpenAI raw response: {text[:500]}...")
+    logger.info(f"Calling OpenAI GPT-5, max_completion_tokens={max_tokens}")
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-5",
+            messages=messages,
+            max_completion_tokens=max_tokens,
+        )
+        raw_content = resp.choices[0].message.content or ""
+        
+        # Log full response details for debugging
+        finish_reason = resp.choices[0].finish_reason if resp.choices else "unknown"
+        usage_info = resp.usage.model_dump() if hasattr(resp, 'usage') and resp.usage else None
+        
+        logger.info(f"OpenAI API response - finish_reason: {finish_reason}, "
+                   f"usage: {usage_info}, content_length: {len(raw_content)}")
+        
+        if not raw_content:
+            logger.error(f"OpenAI returned empty content! finish_reason: {finish_reason}, usage: {usage_info}")
+            if finish_reason == "length":
+                logger.error("Response was truncated due to max_completion_tokens limit. Consider increasing max_tokens.")
+            elif finish_reason == "content_filter":
+                logger.error("Response was filtered by content filter.")
+            else:
+                logger.error(f"Unknown finish_reason: {finish_reason}. Full response object available in logs.")
+    except Exception as e:
+        logger.error(f"OpenAI API call failed: {e}", exc_info=True)
+        raise
+    
+    # DEBUG: Log raw content from OpenAI before any processing
+    debug_msg = f"""
+{'=' * 80}
+LLM RAW (from OpenAI, before .strip()):
+{'=' * 80}
+JSON.stringify equivalent: {json.dumps(raw_content)}
+Length: {len(raw_content)} chars
+Lines (split by \\n): {len(raw_content.split(chr(10)))}
+First 500 chars: {repr(raw_content[:500])}
+{'=' * 80}
+"""
+    logger.info(debug_msg)
+    print(debug_msg)  # Also print to stdout for visibility
+    
+    text = raw_content.strip()  # Only strip leading/trailing whitespace
+    
+    logger.info(f"After .strip() - Length: {len(text)} chars, Lines: {len(text.split(chr(10)))}")
+    logger.info(f"OpenAI response preview: {text[:500]}...")
     _cache.set(key, text)
     return text
 
-def _openai_stream(messages: List[Dict[str, str]], max_tokens: int = 300):
+
+def _openai_complete_with_json_mode(messages: List[Dict[str, str]], max_tokens: int = 2000) -> str:
+    """
+    Complete with JSON mode enabled to ensure structured output.
+    Falls back to regular completion if JSON mode fails.
+    """
+    key = _hash_prompt(json.dumps(messages, ensure_ascii=False), f"{max_tokens}_json")
+    cached = _cache.get(key)
+    if cached is not None:
+        logger.debug(f"Cache hit for JSON mode prompt hash: {key[:16]}...")
+        return cached
+    
     client = _get_openai_client()
-    stream = client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        temperature=0.3,
-        top_p=0.9,
-        max_tokens=max_tokens,
-        stream=True,
-    )
+    logger.info(f"Calling OpenAI GPT-5 with JSON mode, max_completion_tokens={max_tokens}")
+    
+    try:
+        # Try with JSON mode first
+        resp = client.chat.completions.create(
+            model="gpt-5",
+            messages=messages,
+            max_completion_tokens=max_tokens,
+            response_format={"type": "json_object"}
+        )
+        raw_content = resp.choices[0].message.content or ""
+        finish_reason = resp.choices[0].finish_reason if resp.choices else "unknown"
+        usage_info = resp.usage.model_dump() if hasattr(resp, 'usage') and resp.usage else None
+        
+        logger.info(f"JSON mode response - finish_reason: {finish_reason}, usage: {usage_info}, content_length: {len(raw_content)}")
+        
+        if raw_content:
+            text = raw_content.strip()
+            _cache.set(key, text)
+            return text
+        else:
+            logger.warning("JSON mode returned empty content, falling back to regular mode")
+    except Exception as e:
+        logger.warning(f"JSON mode failed: {e}, falling back to regular mode")
+    
+    # Fallback to regular completion
+    return _openai_complete(messages, max_tokens=max_tokens)
+
+
+def _openai_stream(messages: List[Dict[str, str]], max_tokens: Optional[int] = None):
+    client = _get_openai_client()
+    params = {
+        "model": "gpt-5",
+        "messages": messages,
+        "stream": True,
+    }
+    # Only set max_completion_tokens if specified (None means no limit)
+    if max_tokens is not None:
+        params["max_completion_tokens"] = max_tokens
+    stream = client.chat.completions.create(**params)
     for chunk in stream:
         delta = chunk.choices[0].delta
         if delta and getattr(delta, "content", None):
@@ -142,6 +220,10 @@ def _strip_meta(text: str) -> str:
 
 
 def clean_output(text: str) -> str:
+    # DEBUG: Log input to clean_output
+    logger.info(f"clean_output INPUT - Length: {len(text)} chars, Lines: {len(text.split(chr(10)))}")
+    logger.info(f"clean_output INPUT - First 200 chars: {repr(text[:200])}")
+    
     s = text or ""
     for bad in [
         "I am LegalGPT",
@@ -150,12 +232,19 @@ def clean_output(text: str) -> str:
         "≤150 words",
     ]:
         s = s.replace(bad, "")
-    return s.strip()
+    
+    result = s.strip()  # Only strip leading/trailing whitespace
+    
+    # DEBUG: Log output from clean_output
+    logger.info(f"clean_output OUTPUT - Length: {len(result)} chars, Lines: {len(result.split(chr(10)))}")
+    logger.info(f"clean_output OUTPUT - First 200 chars: {repr(result[:200])}")
+    
+    return result
 
 
 class LLMEngine:
     """
-    Singleton LLM engine using OpenAI GPT-4o.
+    Singleton LLM engine using OpenAI GPT-5.
     
     All methods are static and use shared OpenAI client with caching.
     """
@@ -193,7 +282,7 @@ class LLMEngine:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        completion = _openai_complete(messages, max_tokens=180)
+        completion = _openai_complete(messages, max_tokens=400)
         # Allow only citations present in chunks
         allowed = []
         for c in chunks:
@@ -227,13 +316,13 @@ class LLMEngine:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        completion = _openai_complete(messages, max_tokens=120)
+        completion = _openai_complete(messages, max_tokens=300)
         return clean_output(completion)
 
     @staticmethod
     def summarize_file_keyword_context(filename: str, keyword: str, chunks: List[Dict[str, Any]], max_words: int = 40) -> str:
         """
-        Generate a brief AI summary explaining what a keyword means in the context of a specific file.
+        Generate a specific, informative AI summary of a document's relevance to a query.
         
         Args:
             filename: Name of the file
@@ -242,7 +331,7 @@ class LLMEngine:
             max_words: Maximum words in summary (default: 40)
             
         Returns:
-            Clean summary text explaining keyword context
+            Clean, specific summary text (e.g., "This is the 2024 Master Services Agreement between X and Y containing scope, term, termination, and governing law provisions.")
         """
         if not chunks:
             return f"No relevant content found for '{keyword}' in {filename}."
@@ -252,21 +341,26 @@ class LLMEngine:
         for c in chunks[:5]:
             text = c.get("content") or c.get("text") or ""
             text = _strip_meta(text)
-            context_lines.append(text[:600])
+            context_lines.append(text[:1000])
         
         context = "\n\n".join(context_lines)
         
         system = (
-            "You are LegalGPT, the internal legal assistant.\n"
-            "Speak naturally and clearly using plain English.\n"
-            "Be concise and factual."
+            "You are LegalGPT, a legal assistant specializing in contract analysis.\n"
+            "Generate specific, informative summaries that identify document type, parties, and key provisions.\n"
+            "Be precise and factual. Include specific details like document type, parties (if mentioned), year (if mentioned), and key clause types."
         )
         user = (
-            f"File: {filename}\n\n"
-            f"Search keyword: {keyword}\n\n"
-            f"Relevant content from the file:\n{context}\n\n"
-            f"In 1-2 sentences, explain what '{keyword}' means or refers to in the context of this document. "
-            f"Focus on the specific meaning or usage within this file."
+            f"Document name: {filename}\n"
+            f"Search query: {keyword}\n\n"
+            f"Relevant content from this document:\n{context}\n\n"
+            f"Generate a specific summary (max {max_words} words) that:\n"
+            f"- Identifies the document type (e.g., 'Master Services Agreement', 'NDA', 'DPA')\n"
+            f"- Mentions parties if clearly identified in the content\n"
+            f"- Lists the key clause types/provisions found (e.g., 'scope, term, termination, and governing law')\n"
+            f"- Explains why this document is relevant to '{keyword}'\n\n"
+            f"Example format: 'This is the 2024 Master Services Agreement between Mindbody and CloudScale containing scope, term, termination, and governing law provisions.'\n"
+            f"Be specific and avoid generic phrases like 'relevant content found'."
         )
         
         messages = [
@@ -274,72 +368,98 @@ class LLMEngine:
             {"role": "user", "content": user},
         ]
         
-        completion = _openai_complete(messages, max_tokens=100)
+        completion = _openai_complete(messages, max_tokens=400)  # Increased tokens for more detailed summaries
+        result = clean_output(completion)
+        return _trim_words(result, max_words)
+
+    @staticmethod
+    def summarize_clause(clause_text: str, max_words: int = 40) -> str:
+        """
+        Generate a concise 1-2 sentence summary of a legal clause.
+        
+        Args:
+            clause_text: The clause/chunk text to summarize
+            max_words: Maximum words in summary (default: 40)
+            
+        Returns:
+            Brief clause summary (1-2 sentences)
+        """
+        if not clause_text or not clause_text.strip():
+            return ""
+        
+        # Use first 1000 chars to avoid token limits
+        text = clause_text[:1000]
+        system = (
+            "You are LegalGPT, a legal assistant.\n"
+            "Summarize legal clauses concisely in 1-2 sentences.\n"
+            "Focus on key obligations, rights, or terms. Be specific and factual."
+        )
+        user = f"Clause:\n{text}\n\nProvide a brief summary (1-2 sentences, ≤{max_words} words):"
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        completion = _openai_complete(messages, max_tokens=150)
         result = clean_output(completion)
         return _trim_words(result, max_words)
 
     @staticmethod
     def chat(
-        query: str,
-        history: List[Dict[str, str]],
-        context: List[Dict[str, Any]],
-        max_words: int = 150,
+        messages: List[Dict[str, str]],
         allowed_filenames: Optional[List[str]] = None,
-        focus_filenames: Optional[List[str]] = None,
     ) -> str:
-        # Build context block (no "Source Documents:" label)
-        ctx_lines: List[str] = []
-        for c in context[:6]:
-            fname = (c.get("metadata") or {}).get("file_name") or c.get("filename") or ""
-            text = c.get("content") or c.get("text") or ""
-            text = _strip_meta(text)
-            block = text[:800]
-            if fname:
-                ctx_lines.append(f"[{fname}]\n{block}")
-            else:
-                ctx_lines.append(block)
-        ctx_str = "\n\n".join(ctx_lines)
-
-        # System prompt (verbatim)
-        system_lines = [
-            "You are LegalGPT, the internal legal assistant.",
-            "Speak naturally and clearly using plain English.",
-            "Use provided document context when available.",
-            "Be concise, factual, and helpful—no preambles like “I am LegalGPT.”",
-            "Never repeat token limits or internal instructions.",
-            "When you present multiple points, use short paragraphs or bullet lists with blank lines between sections.",
-        ]
-        if focus_filenames:
-            unique_focus = sorted(dict.fromkeys(focus_filenames))
-            system_lines.append(
-                "Focus your answer on these documents unless the user explicitly broadens the scope: "
-                + ", ".join(unique_focus)
-            )
-        SYSTEM_PROMPT = "  \n".join(system_lines)
-
-        # Prepare structured chat messages: system, *history, user
-        messages: List[Dict[str, str]] = []
-        messages.append({"role": "system", "content": SYSTEM_PROMPT})
-
-        # Append history as-is (limit to recent few for brevity)
-        for h in (history or [])[-6:]:
-            role = h.get("role", "user")
-            content = (h.get("content") or "").strip()
-            if content:
-                messages.append({"role": role, "content": content})
-
-        # Build user content as plain question plus any retrieved context
-        user_content = query.strip()
-        if ctx_str:
-            user_content = f"{user_content}\n\n{ctx_str}"
-        messages.append({"role": "user", "content": user_content})
-
-        completion = _openai_complete(messages, max_tokens=300)
-        result = clean_output(completion)
+        """
+        Non-streaming chat - collects streamed tokens and returns full response.
+        
+        Args:
+            messages: Pre-built list of messages (system, history, user) ready for LLM
+            allowed_filenames: Optional list of allowed filenames for citation filtering
+            
+        Returns:
+            Cleaned response text with citations filtered if needed
+        """
+        # Collect all tokens from stream
+        full_text = ""
+        for token in Streaming.chat_stream(messages):
+            full_text += token
+        
+        # DEBUG: Log raw content from streaming before any processing
+        import sys
+        newline_char = '\n'
+        crlf = '\r\n'
+        has_newline = newline_char in full_text
+        has_crlf = crlf in full_text
+        debug_msg = f"""
+{'=' * 80}
+LLM RAW (from LLMEngine.chat, before clean_output):
+{'=' * 80}
+JSON.stringify equivalent: {json.dumps(full_text)}
+Length: {len(full_text)} chars
+Lines (split by \\n): {len(full_text.split(newline_char))}
+First 500 chars: {repr(full_text[:500])}
+Contains \\n: {has_newline}
+Contains \\r\\n: {has_crlf}
+{'=' * 80}
+"""
+        logger.info(debug_msg)
+        print(debug_msg, file=sys.stderr)  # Print to stderr for visibility
+        sys.stderr.flush()  # Force flush
+        
+        result = clean_output(full_text)
+        
+        # DEBUG: Log after clean_output
+        debug_msg = f"""
+{'=' * 80}
+After clean_output():
+Length: {len(result)} chars
+Lines (split by \\n): {len(result.split(chr(10)))}
+JSON.stringify equivalent: {json.dumps(result)}
+{'=' * 80}
+"""
+        logger.info(debug_msg)
+        print(debug_msg)  # Also print to stdout for visibility
 
         # Optional: restrict bracketed citations to allowed filenames only
-        if focus_filenames and not allowed_filenames:
-            allowed_filenames = focus_filenames
         if allowed_filenames:
             import re
             allowed_set = set(allowed_filenames)
@@ -356,29 +476,29 @@ class LLMEngine:
             "renewal_terms", "termination_clause", "payment_terms", 
             "governing_law", "confidentiality", "liability_cap"
         ]
-        text = contract_text[:8000]
+        text = contract_text[:6000]  # Reduced from 8000 to speed up processing
         system = (
             "You are LegalGPT, an expert legal assistant.\n"
-            "Extract contract terms and return ONLY a valid JSON array.\n\n"
-            "CRITICAL: Your response must be ONLY the JSON array. No markdown, no code blocks, no explanations.\n"
-            "Start with [ and end with ]\n\n"
-            "Each object in the array must have exactly these fields:\n"
-            '{"field": "term_name", "value": "extracted_value", "confidence": 0.9, "snippet": "brief quote", "location": "section"}\n\n'
-            "Keep snippets under 80 characters. Ensure valid JSON syntax (proper quotes, no trailing commas)."
+            "Extract contract terms and return ONLY a valid JSON object with a 'terms' array.\n\n"
+            "CRITICAL: Return ONLY a JSON object. No markdown, no code blocks, no explanations.\n"
+            "Format: {\"terms\": [{\"field\": \"term_name\", \"value\": \"extracted_value\", \"confidence\": 0.9, \"snippet\": \"brief quote\", \"location\": \"section\"}]}\n\n"
+            "Keep snippets under 60 characters. Extract only terms that are clearly present. Ensure valid JSON syntax."
         )
         user = (
             f"Extract these terms: {', '.join(fields_hint)}\n\n"
             f"Contract:\n{_strip_meta(text)}\n\n"
-            f"JSON array:"
+            f"Return JSON object with 'terms' array. Be concise - extract only what's present."
         )
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        completion = _openai_complete(messages, max_tokens=1500)
+        # No token limit - let GPT-5 generate complete response
+        # Use JSON mode to ensure structured output
+        completion = _openai_complete_with_json_mode(messages, max_tokens=8000)
         # Try to parse JSON from completion
         def _parse_json(s: str) -> List[Dict[str, Any]]:
-            # Strip markdown code fences first (GPT-4o often wraps JSON in ```json ... ```)
+            # Strip markdown code fences first (GPT-5 often wraps JSON in ```json ... ```)
             stripped = s.strip()
             if stripped.startswith("```"):
                 # Remove opening fence
@@ -392,32 +512,198 @@ class LLMEngine:
             
             try:
                 parsed = json.loads(stripped)
-                logger.info(f"JSON parsed successfully, items: {len(parsed) if isinstance(parsed, list) else 'not a list'}")
-                return parsed if isinstance(parsed, list) else []
+                # Handle both formats: direct array or object with "terms" key
+                if isinstance(parsed, dict) and "terms" in parsed:
+                    items = parsed["terms"]
+                    logger.info(f"JSON parsed successfully from object.terms, items: {len(items) if isinstance(items, list) else 'not a list'}")
+                    return items if isinstance(items, list) else []
+                elif isinstance(parsed, list):
+                    logger.info(f"JSON parsed successfully as array, items: {len(parsed)}")
+                    return parsed
+                else:
+                    logger.warning(f"JSON parsed but not a list or object with 'terms' key: {type(parsed)}")
+                    return []
             except Exception as e:
                 logger.warning(f"Direct JSON parse failed: {e}, attempting bracket extraction")
-                # Find first/last brackets
+                # Try to find object with "terms" key first
+                obj_start = stripped.find("{")
+                obj_end = stripped.rfind("}")
+                if obj_start != -1 and obj_end != -1 and obj_end > obj_start:
+                    try:
+                        extracted = stripped[obj_start:obj_end+1]
+                        import re
+                        extracted = re.sub(r',\s*([}\]])', r'\1', extracted)
+                        parsed = json.loads(extracted)
+                        if isinstance(parsed, dict) and "terms" in parsed:
+                            items = parsed["terms"]
+                            logger.info(f"Extracted JSON object with terms, items: {len(items) if isinstance(items, list) else 'not a list'}")
+                            return items if isinstance(items, list) else []
+                    except Exception as e2:
+                        logger.warning(f"Object extraction failed: {e2}")
+                
+                # Fallback: try to find array
                 start = stripped.find("[")
                 end = stripped.rfind("]")
                 if start != -1 and end != -1 and end > start:
                     try:
                         extracted = stripped[start:end+1]
-                        # Clean up common JSON errors (trailing commas, etc.)
                         import re
-                        # Remove trailing commas before closing brackets/braces
                         extracted = re.sub(r',\s*([}\]])', r'\1', extracted)
                         parsed = json.loads(extracted)
-                        logger.info(f"Extracted JSON from brackets, items: {len(parsed) if isinstance(parsed, list) else 'not a list'}")
+                        logger.info(f"Extracted JSON array, items: {len(parsed) if isinstance(parsed, list) else 'not a list'}")
                         return parsed if isinstance(parsed, list) else []
                     except Exception as e2:
                         logger.error(f"Bracket extraction failed: {e2}, raw text preview: {stripped[:300]}")
                         logger.error(f"Attempted to parse: {extracted[:500] if 'extracted' in locals() else 'N/A'}")
                         return []
-                logger.error(f"No JSON array found in response, preview: {stripped[:300]}")
+                logger.error(f"No JSON array or object found in response, preview: {stripped[:300]}")
                 return []
         items = _parse_json(completion)
         logger.info(f"extract_terms returning {len(items)} items")
+        if items:
+            logger.info(f"Sample extracted term: {items[0] if items else 'N/A'}")
+            logger.info(f"First 3 term fields: {[t.get('field', 'N/A') for t in items[:3]]}")
+        else:
+            logger.warning("extract_terms returned empty list - terms table will not populate!")
+            logger.warning(f"Raw completion preview: {completion[:500]}")
         return items
+
+    @staticmethod
+    def analyze_contract_sentiment(
+        contract_text: str,
+        extracted_terms: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Analyze contract sentiment to determine if it's good to sign as-is.
+        
+        Returns a dictionary with:
+        - score: 0-100 (higher is better)
+        - label: "Good to Sign", "Needs Review", or "High Risk"
+        - explanation: Brief explanation of the score
+        - concerns: List of key concerns (if any)
+        - positives: List of positive aspects (if any)
+        """
+        # Build summary of extracted terms for analysis
+        terms_summary = []
+        for term in extracted_terms:
+            field = term.get("field", "")
+            value = term.get("value", "")
+            if field and value:
+                terms_summary.append(f"{field}: {value}")
+        
+        terms_text = "\n".join(terms_summary) if terms_summary else "No terms extracted"
+        contract_snippet = _strip_meta(contract_text[:3000])  # Reduced to 3000 chars to save tokens for terms extraction
+        
+        system = (
+            "You are LegalGPT, a legal contract analyst.\n"
+            "Quickly analyze contract favorability. Return ONLY JSON:\n"
+            '{"score": 75, "label": "Good to Sign", "explanation": "Brief", "concerns": ["concern"], "positives": ["positive"]}\n\n'
+            "Score: 70-100=Good, 40-69=Review, 0-39=High Risk. Keep explanation under 20 words."
+        )
+        
+        user = (
+            f"Contract:\n{contract_snippet[:2000]}\n\n"
+            f"Terms:\n{terms_text}\n\n"
+            f"Quick analysis: score, label, brief explanation, top 2 concerns, top 2 positives."
+        )
+        
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        
+        # Quick concise summary - no token limit needed
+        completion = _openai_complete_with_json_mode(messages, max_tokens=2000)
+        
+        # Log the raw response for debugging
+        logger.info(f"Sentiment analysis raw response (length: {len(completion)}): {repr(completion[:200])}")
+        
+        # Parse JSON response
+        def _parse_sentiment_json(s: str) -> Dict[str, Any]:
+            if not s or not s.strip():
+                logger.warning("Sentiment analysis returned empty response")
+                raise ValueError("Empty response from LLM")
+            
+            stripped = s.strip()
+            # Remove markdown code fences if present
+            if stripped.startswith("```"):
+                lines = stripped.split('\n')
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                stripped = '\n'.join(lines).strip()
+            
+            if not stripped:
+                logger.warning("Sentiment response is empty after stripping markdown")
+                raise ValueError("Empty response after processing")
+            
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, dict):
+                    logger.info(f"Successfully parsed sentiment JSON: {parsed}")
+                    return parsed
+            except json.JSONDecodeError as e:
+                logger.warning(f"Sentiment JSON parse failed: {e}, raw content: {repr(stripped[:200])}, attempting bracket extraction")
+                # Try to find JSON object
+                start = stripped.find("{")
+                end = stripped.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    try:
+                        extracted = stripped[start:end+1]
+                        import re
+                        # Fix trailing commas before closing braces/brackets
+                        extracted = re.sub(r',\s*([}\]])', r'\1', extracted)
+                        parsed = json.loads(extracted)
+                        if isinstance(parsed, dict):
+                            logger.info(f"Successfully parsed sentiment JSON after bracket extraction: {parsed}")
+                            return parsed
+                    except Exception as e2:
+                        logger.error(f"Sentiment bracket extraction failed: {e2}, extracted: {repr(extracted[:200])}")
+            
+            # Fallback: return default response
+            logger.warning(f"Failed to parse sentiment JSON, returning default. Raw response: {repr(stripped[:500])}")
+            raise ValueError(f"Could not parse JSON from response: {repr(stripped[:200])}")
+        
+        try:
+            result = _parse_sentiment_json(completion)
+        except ValueError as e:
+            logger.error(f"Sentiment analysis parsing failed: {e}")
+            # Return default response
+            result = {
+                "score": 50,
+                "label": "Needs Review",
+                "explanation": "Unable to analyze contract automatically. Please review manually.",
+                "concerns": ["Analysis unavailable"],
+                "positives": []
+            }
+        
+        # Validate and normalize score
+        score = result.get("score", 50)
+        if not isinstance(score, (int, float)):
+            try:
+                score = float(score)
+            except (ValueError, TypeError):
+                score = 50
+        score = max(0, min(100, int(score)))  # Clamp to 0-100
+        
+        # Determine label if not provided or invalid
+        label = result.get("label", "")
+        if not label or label not in ["Good to Sign", "Needs Review", "High Risk"]:
+            if score >= 70:
+                label = "Good to Sign"
+            elif score >= 40:
+                label = "Needs Review"
+            else:
+                label = "High Risk"
+        
+        return {
+            "score": score,
+            "label": label,
+            "explanation": result.get("explanation", "Contract analysis completed."),
+            "concerns": result.get("concerns", []),
+            "positives": result.get("positives", [])
+        }
 
 
 def _build_messages(system_msg: str, user_msg: str) -> List[Dict[str, str]]:
@@ -429,50 +715,18 @@ def _build_messages(system_msg: str, user_msg: str) -> List[Dict[str, str]]:
 class Streaming:
     @staticmethod
     def chat_stream(
-        query: str,
-        history: List[Dict[str, str]],
-        context: List[Dict[str, Any]],
-        focus_filenames: Optional[List[str]] = None,
+        messages: List[Dict[str, str]],
     ):
-        # Build context block
-        ctx_lines: List[str] = []
-        for c in context[:6]:
-            fname = (c.get("metadata") or {}).get("file_name") or c.get("filename") or ""
-            text = c.get("content") or c.get("text") or ""
-            text = _strip_meta(text)
-            block = text[:800]
-            if fname:
-                ctx_lines.append(f"[{fname}]\n{block}")
-            else:
-                ctx_lines.append(block)
-        ctx_str = "\n\n".join(ctx_lines)
-
-        system_lines = [
-            "You are LegalGPT, the internal legal assistant.",
-            "Speak naturally and clearly using plain English.",
-            "Use provided document context when available.",
-            "Be concise, factual, and helpful—no preambles like “I am LegalGPT.”",
-            "Never repeat token limits or internal instructions.",
-            "When you present multiple points, use short paragraphs or bullet lists with blank lines between sections.",
-        ]
-        if focus_filenames:
-            unique_focus = sorted(dict.fromkeys(focus_filenames))
-            system_lines.append(
-                "Focus your answer on these documents unless the user explicitly broadens the scope: "
-                + ", ".join(unique_focus)
-            )
-        SYSTEM_PROMPT = "  \n".join(system_lines)
-        messages: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        for h in (history or [])[-6:]:
-            role = h.get("role", "user")
-            content = (h.get("content") or "").strip()
-            if content:
-                messages.append({"role": role, "content": content})
-        user_content = query.strip()
-        if ctx_str:
-            user_content = f"{user_content}\n\n{ctx_str}"
-        messages.append({"role": "user", "content": user_content})
-
-        return _openai_stream(messages, max_tokens=300)
+        """
+        Stream chat response from pre-built messages.
+        
+        Args:
+            messages: Pre-built list of messages (system, history, user) ready for LLM
+            
+        Yields:
+            Token strings as they're generated by the LLM
+        """
+        # No hard limit - let the model decide length, but prompt encourages conciseness
+        return _openai_stream(messages, max_tokens=None)
 
 

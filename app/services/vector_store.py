@@ -217,12 +217,12 @@ class VectorStore:
         """
         try:
             # Get all chunk IDs for the file
+            # Note: ChromaDB always returns IDs, so we don't need to include them
             results = self.collection.get(
-                where={"file_name": file_name},
-                include=['ids']
+                where={"file_name": file_name}
             )
             
-            if results['ids']:
+            if results.get('ids') and len(results['ids']) > 0:
                 self.collection.delete(ids=results['ids'])
                 deleted_count = len(results['ids'])
                 logger.info(f"Deleted document chunks, file_name: {file_name}, count: {deleted_count}")
@@ -232,6 +232,49 @@ class VectorStore:
             
         except Exception as e:
             logger.error(f"Failed to delete document chunks, file_name: {file_name}, error: {str(e)}")
+            raise
+    
+    def rename_document(self, old_file_name: str, new_file_name: str) -> int:
+        """
+        Rename a document by updating file_name in metadata for all chunks.
+        
+        Args:
+            old_file_name: Current name of the file
+            new_file_name: New name for the file
+            
+        Returns:
+            Number of chunks updated
+        """
+        try:
+            # Get all chunks for the old file name
+            results = self.collection.get(
+                where={"file_name": old_file_name},
+                include=['metadatas']
+            )
+            
+            if not results.get('ids') or len(results['ids']) == 0:
+                logger.warning(f"No chunks found for file: {old_file_name}")
+                return 0
+            
+            # Update metadata for each chunk
+            updated_count = 0
+            for chunk_id, metadata in zip(results['ids'], results['metadatas']):
+                # Create updated metadata with new file_name
+                updated_metadata = metadata.copy()
+                updated_metadata['file_name'] = new_file_name
+                
+                # Update the chunk's metadata
+                self.collection.update(
+                    ids=[chunk_id],
+                    metadatas=[updated_metadata]
+                )
+                updated_count += 1
+            
+            logger.info(f"Renamed document, old_name: {old_file_name}, new_name: {new_file_name}, chunks_updated: {updated_count}")
+            return updated_count
+            
+        except Exception as e:
+            logger.error(f"Failed to rename document, old_name: {old_file_name}, new_name: {new_file_name}, error: {str(e)}")
             raise
     
     def get_collection_stats(self) -> Dict[str, Any]:

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>List Rendering Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .message-content {
+            padding: 1rem;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        .message-content ul.message-list {
+            display: block;
+            margin: 0.5rem 0 1rem;
+            padding-left: 0;
+            line-height: 1.7;
+            list-style: none;
+            width: 100%;
+        }
+        .message-content ul.message-list li {
+            display: block;
+            margin: 0.6rem 0;
+            padding: 0.5rem 0 0.5rem 1.75rem;
+            position: relative;
+            border-left: 3px solid #7c3aed;
+            margin-left: 0.5rem;
+            background: rgba(124, 58, 237, 0.03);
+            border-radius: 4px;
+            width: 100%;
+        }
+        .message-content ul.message-list li::before {
+            content: "•";
+            color: #7c3aed;
+            font-weight: 700;
+            font-size: 1.3em;
+            position: absolute;
+            left: 0.25rem;
+            top: 0.5rem;
+            line-height: 1;
+        }
+        .message-content ul.message-list li strong {
+            color: #7c3aed;
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 0.2rem;
+        }
+        .paragraph-break {
+            height: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>List Rendering Test</h1>
+    <p>If bullets appear on separate lines, the CSS is working correctly.</p>
+    
+    <div class="message-content">
+        <p>The Software License Agreement (SLA) between Mindbody, Inc. (Licensee) and CloudApps Ltd. (Licensor) is effective from May 15, 2023. Key points include</p>
+        <div class="paragraph-break"></div>
+        <ul class="message-list">
+            <li><strong>License Grant:</strong> The Licensee receives a non-exclusive, non-transferable license to use the software</li>
+            <li><strong>Restrictions:</strong> The Licensee is prohibited from reverse engineering or modifying the software</li>
+            <li><strong>Support:</strong> The Licensor will offer updates and technical support throughout the term</li>
+            <li><strong>Term & Renewal:</strong> The agreement has an initial term of one year and will automatically renew unless terminated with a thirty-day written notice</li>
+        </ul>
+    </div>
+    
+    <h2>Expected Result</h2>
+    <p>Each bullet point should appear on its own line with:</p>
+    <ul>
+        <li>Purple left border</li>
+        <li>Light purple background</li>
+        <li>Bold label in purple</li>
+        <li>Proper spacing between items</li>
+    </ul>
+</body>
+</html>
+
+

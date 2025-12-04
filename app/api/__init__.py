@@ -1,5 +1,6 @@
 """API routes initialization."""
 from fastapi import APIRouter
+from typing import Dict, Any
 
 from app.api import chat, documents, health, search
 from app.api import legalgpt_extract
@@ -16,3 +17,20 @@ router.include_router(search.router, prefix="/search", tags=["search"])
 
 # Legacy extract endpoints for compatibility
 router.include_router(legalgpt_extract.router, prefix="/legalgpt/extract", tags=["extract"])
+
+# Prompt templates endpoint - expose at /api/legalgpt/prompts/
+@router.get("/legalgpt/prompts/")
+async def get_prompt_templates() -> Dict[str, Any]:
+    """Get prompt templates (returns empty array if no templates configured)."""
+    try:
+        # Return empty templates array for now
+        # TODO: Load from prompts/prompts.json if needed
+        return {
+            "status": "success",
+            "templates": []
+        }
+    except Exception as e:
+        return {
+            "status": "success",
+            "templates": []
+        }

@@ -1,11 +1,14 @@
 """Document management API endpoints."""
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Depends
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import logging
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote
 
 from app.config import settings
 from app.services.document_processor import DocumentProcessor
@@ -174,22 +177,103 @@ async def delete_document_from_vector_store(
 ) -> Dict[str, Any]:
     """Remove a document from the vector database (not from Sharepoint)."""
     try:
-        deleted_count = vector_store.delete_document_chunks(file_name)
+        # URL decode the file name in case it's encoded
+        from urllib.parse import unquote
+        decoded_file_name = unquote(file_name)
+        
+        logger.info(f"Attempting to delete document: {decoded_file_name} (original: {file_name})")
+        deleted_count = vector_store.delete_document_chunks(decoded_file_name)
         
         if deleted_count == 0:
-            raise HTTPException(status_code=404, detail=f"Document '{file_name}' not found in vector database")
+            raise HTTPException(status_code=404, detail=f"Document '{decoded_file_name}' not found in vector database")
         
+        logger.info(f"Successfully deleted {deleted_count} chunks for document: {decoded_file_name}")
         return {
             "status": "success",
-            "message": f"Removed '{file_name}' from vector database",
+            "message": f"Removed '{decoded_file_name}' from vector database",
             "deleted_chunks": deleted_count
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete document, file_name: {file_name, error: {str(e)}}")
+        logger.error(f"Failed to delete document, file_name: {file_name}, error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+
+
+class RenameRequest(BaseModel):
+    new_name: str
+
+
+@router.put("/{file_name}/rename")
+async def rename_document(
+    file_name: str,
+    request: RenameRequest,
+    vector_store: VectorStore = Depends(get_vector_store)
+) -> Dict[str, Any]:
+    """Rename a document in the vector database."""
+    try:
+        # URL decode the file name
+        from urllib.parse import unquote
+        decoded_file_name = unquote(file_name)
+        new_name = request.new_name.strip()
+        
+        # Validate new name
+        if not new_name:
+            raise HTTPException(status_code=400, detail="New file name cannot be empty")
+        
+        # Validate file name follows typical document naming conventions
+        # Prevent path traversal, null bytes, and other dangerous characters
+        invalid_chars = ['/', '\\', '\x00', '<', '>', ':', '"', '|', '?', '*']
+        if any(char in new_name for char in invalid_chars):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid file name. Cannot contain: {', '.join(invalid_chars)}"
+            )
+        
+        # Check if new name already exists
+        existing = vector_store.collection.get(
+            where={"file_name": new_name}
+        )
+        if existing.get('ids') and len(existing['ids']) > 0:
+            raise HTTPException(
+                status_code=409, 
+                detail=f"File '{new_name}' already exists in vector database"
+            )
+        
+        # Check if old file exists
+        old_file = vector_store.collection.get(
+            where={"file_name": decoded_file_name}
+        )
+        if not old_file.get('ids') or len(old_file['ids']) == 0:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Document '{decoded_file_name}' not found in vector database"
+            )
+        
+        logger.info(f"Attempting to rename document: {decoded_file_name} -> {new_name}")
+        updated_count = vector_store.rename_document(decoded_file_name, new_name)
+        
+        if updated_count == 0:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Document '{decoded_file_name}' not found in vector database"
+            )
+        
+        logger.info(f"Successfully renamed document: {decoded_file_name} -> {new_name}, chunks_updated: {updated_count}")
+        return {
+            "status": "success",
+            "message": f"Renamed '{decoded_file_name}' to '{new_name}'",
+            "old_name": decoded_file_name,
+            "new_name": new_name,
+            "chunks_updated": updated_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to rename document, file_name: {file_name}, new_name: {request.new_name}, error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to rename document: {str(e)}")
 
 
 @router.get("/stats")
@@ -387,7 +471,7 @@ async def list_local_documents(
                     unique_docs[file_name] = {
                         "name": file_name,
                         "file_path": metadata.get('file_path', file_path),
-                        "time_modified": metadata.get('time_modified', ''),
+                        "time_last_modified": metadata.get('time_last_modified', metadata.get('time_modified', '')),
                         "author": metadata.get('author', 'Unknown'),
                         "file_size": metadata.get('file_size', 0),
                         "chunk_count": 1
@@ -404,6 +488,66 @@ async def list_local_documents(
     except Exception as e:
         logger.error(f"Failed to list local documents, error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list local documents: {str(e)}")
+
+
+@router.get("/{file_name}/download")
+async def download_document(
+    file_name: str,
+    vector_store: VectorStore = Depends(get_vector_store)
+):
+    """
+    Download a document file.
+    
+    First checks if the file exists in the uploads directory.
+    If not found, tries to get the path from vector store metadata.
+    """
+    try:
+        # URL decode the file name
+        decoded_file_name = unquote(file_name)
+        
+        # Check if file exists in uploads directory
+        uploads_dir = Path(settings.uploads_directory)
+        file_path = uploads_dir / decoded_file_name
+        
+        if not file_path.exists():
+            # Try to get file_path from vector store metadata
+            chunks = vector_store.search_by_file(decoded_file_name)
+            if chunks and chunks[0].get('metadata', {}).get('file_path'):
+                metadata_path = chunks[0]['metadata']['file_path']
+                # Handle both absolute and relative paths
+                if os.path.isabs(metadata_path):
+                    file_path = Path(metadata_path)
+                else:
+                    # Try relative to uploads directory
+                    file_path = uploads_dir / metadata_path
+                
+                if not file_path.exists():
+                    raise HTTPException(status_code=404, detail=f"File '{decoded_file_name}' not found")
+            else:
+                raise HTTPException(status_code=404, detail=f"File '{decoded_file_name}' not found")
+        
+        # Determine media type based on file extension
+        media_type_map = {
+            '.pdf': 'application/pdf',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.doc': 'application/msword',
+            '.txt': 'text/plain',
+            '.rtf': 'application/rtf'
+        }
+        file_ext = file_path.suffix.lower()
+        media_type = media_type_map.get(file_ext, 'application/octet-stream')
+        
+        return FileResponse(
+            path=str(file_path),
+            filename=decoded_file_name,
+            media_type=media_type
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download document, file_name: {decoded_file_name if 'decoded_file_name' in locals() else file_name}, error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to download document: {str(e)}")
 
 
 # Background task functions
