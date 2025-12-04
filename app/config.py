@@ -1,5 +1,6 @@
 """Application configuration management."""
 import os
+from typing import List
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
@@ -60,6 +61,12 @@ class Settings(BaseSettings):
     
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
+    
+    # Security
+    allowed_origins: List[str] = Field(
+        default=["http://localhost:8000", "http://127.0.0.1:8000"],
+        description="List of allowed origins for CORS"
+    )
     
     # Search Configuration
     search_similarity_threshold: float = Field(
