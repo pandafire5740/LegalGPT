@@ -2810,7 +2810,7 @@ body.theme-dark .extract-container {
 }
 
 .extract-header {
-    margin-bottom: 2.5rem;
+    margin-bottom: 2rem;
     text-align: center;
     padding: 2rem;
     background: white;
@@ -2840,24 +2840,26 @@ body.theme-dark .extract-header {
     color: var(--text-secondary);
     font-size: 1.125rem;
     font-weight: 500;
+    margin-bottom: 1.5rem;
 }
 
 .extract-selector-area {
-    margin-bottom: 2rem;
+    margin-top: 1.5rem;
+    text-align: left;
 }
 
 .file-selector-box {
-    background: white;
-    padding: 2rem;
-    border-radius: 16px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.8);
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+    border: none;
 }
 
 body.theme-dark .file-selector-box {
-    background: var(--bg-primary);
-    border-color: var(--border-color);
-    box-shadow: var(--shadow-md);
+    background: transparent;
+    border: none;
+    box-shadow: none;
 }
 
 .file-selector-box label {
